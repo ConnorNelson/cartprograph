@@ -2,7 +2,7 @@ class Map {
     constructor() {
         this.svg = SVG()
             .addTo('#map')
-            .viewbox(-250, -250, 500, 500)
+            .viewbox(150, -10, 500, 500)
             .panZoom();
 
         this.nodes = [];
@@ -13,8 +13,8 @@ class Map {
         this.root = new Node(this, null, '');
         this.root.select();
 
-        this.svg.on('zoom', (e) => e.preventDefault());
-        this.svg.on('pinchZoomStart', (e) => e.preventDefault());
+        // this.svg.on('zoom', (e) => e.preventDefault());
+        // this.svg.on('pinchZoomStart', (e) => e.preventDefault());
 
         const this_ = this;
 
@@ -67,8 +67,7 @@ class Map {
                     const i = s.parent.children.indexOf(s.parentEdge);
                     if (i > 0)
                         s.parent.children[i-1].node2.select(true, true);
-                }
-                else if (s instanceof Edge) {
+                } else if (s instanceof Edge) {
                     const i = s.node1.children.indexOf(s);
                     if (i > 0)
                         s.node1.children[i-1].select(true, true);
@@ -80,8 +79,7 @@ class Map {
                     const i = s.parent.children.indexOf(s.parentEdge);
                     if (i < s.parent.children.length - 1)
                         s.parent.children[i+1].node2.select(true, true);
-                }
-                else if (s instanceof Edge) {
+                } else if (s instanceof Edge) {
                     const i = s.node1.children.indexOf(s);
                     if (i < s.node1.children.length - 1)
                         s.node1.children[i+1].select(true, true);
@@ -125,45 +123,107 @@ class Node {
 
         this.map.nodes.push(this);
 
-        if (parent === null) {
+        this.draw();
+    }
+
+    draw() {
+        if (this.group === undefined) {
+            this.group = (this.parent ? this.parent.group.group() : this.map.svg.group());
+            this.groupHidden = (this.parent ? this.parent.group.group() : this.map.svg.group());
+            this.groupHidden.addClass('hidden');
+
+            if (this.parent === null) {
+                this.rect = this.group.circle(50)
+                    .addClass('nodeOuter')
+                    .click(() => this.select());
+                this.groupHidden.circle(50);
+
+            } else {
+                const this_ = this;
+                function text(add) {
+                    this_.data.split(/\r?\n/).forEach((line) => {
+                        line.match(/.{1,20}/g).forEach((str, i, a) => {
+                            add.tspan(str)
+                                .attr({
+                                    'text-decoration': 'underline',
+                                })
+                                .newLine();
+                            if (i < a.length - 1)
+                                add.tspan('\\');
+                        });
+                    });
+                }
+
+                const textHidden = this.groupHidden.text(text);
+                const bb = textHidden.bbox();
+                const m = {
+                    'x': 10,
+                    'y': 10,
+                };
+                const min = {
+                    'x': 100,
+                    'y': 100,
+                }
+                this.rect = this.group.rect(Math.max(bb.w + 2*m.x, min.x), Math.max(bb.h + 2*m.y, min.y))
+                    .addClass('nodeOuter')
+                    .attr({
+                        'x': bb.x - m.x,
+                        'y': bb.y - m.y,
+                    })
+                    .click(() => this.select());
+                this.rectInner = this.group.rect(Math.max(bb.w + m.x, min.x - m.x), Math.max(bb.h + m.y, min.y - m.x))
+                    .addClass('nodeInner')
+                    .attr({
+                        'x': bb.x - m.x/2,
+                        'y': bb.y - m.y/2,
+                    })
+                    .click(() => this.select());
+                this.groupHidden.rect(Math.max(bb.w + 2*m.x, min.x), Math.max(bb.h + 2*m.y, min.y))
+                    .attr({
+                        'x': Math.max(bb.x - m.x, min),
+                        'y': Math.max(bb.y - m.y, min),
+                    });
+
+                this.group.text(text);
+            }
+
+        }
+
+        if (this.parent === null) {
             this.x = 0;
             this.y = 0;
 
         } else {
-            const bb = parent.group.bbox();
-            const m = 150;
+            const bb = this.parent.rect.bbox();
+            const m = 50;
 
-            if (this.parent.children.length) {
-                const s = this.parent.children[this.parent.children.length - 1].node2;
+            this.x = 0;
+            this.y = bb.h + m;
+
+            var i = this.parent.children.indexOf(this.parentEdge);
+            if (i == -1)
+                i = this.parent.children.length;
+            if (i > 0) {
+                const s = this.parent.children[i-1].node2;
                 const sbb = s.group.bbox();
-                this.x = s.x + sbb.x + sbb.width + m;
-            } else {
-                this.x = parent.x + bb.x;
+                this.x = s.x + sbb.width + m;
             }
-
-            this.y = parent.y + bb.y + bb.h + m;
         }
 
-        this.group = this.map.svg.group()
-            .translate(this.x, this.y);
+        this.group.animate().transform({
+            'translateX': this.x,
+            'translateY': this.y,
+        });
+        this.groupHidden.transform({
+            'translateX': this.x,
+            'translateY': this.y,
+        });
 
-        if (parent === null) {
-            this.rect = this.group.circle(50)
-                .click(() => this.select(!this.selected));
-
-        } else {
-            this.text = this.group.text(this.data);
-            const b = this.text.bbox();
-            const m = {
-                'x': 50,
-                'y': 10,
-            };
-            this.rect = this.group.rect(b.w + 2*m.x, b.h + 2*m.y)
-                .attr({
-                    'x': b.x - m.x,
-                    'y': b.y - m.y,
-                })
-                .click(() => this.select(!this.selected));
+        if (this.parent !== null && this.parent.parent !== null) {
+            this.parent.parent.children.forEach((edge) => {
+                edge.node2.draw();
+                edge.draw();
+            });
         }
     }
 
@@ -180,22 +240,25 @@ class Node {
             if (this.map.selected && this.map.selected !== this)
                 this.map.selected.select(false);
             this.rect.addClass('selected');
+            if (this.rectInner !== undefined)
+                this.rectInner.addClass('selected');
             this.map.selected = this;
             if (this.parentEdge) {
                 this.parent.prevSelectedIndex = this.parent.children.indexOf(this.parentEdge);
             }
             if (pan) {
                 const mbb = $('#map')[0].getBoundingClientRect(),
-                      gbb = this.group.rbox(),
+                      gbb = this.rect.rbox(),
                       vbb = this.map.svg.viewbox();
                 const dx = ((mbb.x + mbb.width/2) - gbb.cx),
                       dy = ((mbb.y + mbb.height/2) - gbb.cy);
                 const zoom = Math.min((vbb.h / mbb.height), (vbb.h / mbb.height))
                 this.map.pan(vbb.x - dx*zoom, vbb.y - dy*zoom);
             }
-        }
-        else {
+        } else {
             this.rect.removeClass('selected');
+            if (this.rectInner !== undefined)
+                this.rectInner.removeClass('selected');
             this.map.selected = null;
         }
     }
@@ -212,25 +275,40 @@ class Edge {
 
         this.node2.parentEdge = this;
 
-        const bb1 = this.node1.group.bbox();
-        const bb2 = this.node2.group.bbox();
-        const x1 = bb1.x + bb1.w/2 + node1.x;
-        const y1 = bb1.y + bb1.h + node1.y;
-        const x2 = bb2.x + bb2.w/2 + node2.x;
-        const y2 = bb2.y + node2.y;
+        this.draw();
+    }
+
+    draw() {
+        const bb1 = this.node1.rect.bbox();
+        const bb2 = this.node2.rect.bbox();
+        const x1 = bb1.x + bb1.w/2;
+        const y1 = bb1.y + bb1.h;
+        const x2 = this.node2.x + bb2.x + bb2.w/2;
+        const y2 = this.node2.y + bb2.y;
 
         const points = [];
         points.push([x1, y1]);
-        if (x1 !== x2) {
+        const t = 50;
+        if (Math.abs(x1 - x2) > t) {
             const xm = (x1 + x2) / 2;
             const ym = (y1 + y2) / 2;
             points.push([x1, ym]);
             points.push([x2, ym]);
+            points.push([x2, y2]);
+        } else {
+            points.push([x1, y2]);
         }
-        points.push([x2, y2]);
 
-        this.polyline = this.map.svg.polyline(points)
-            .click(() => this.select(!this.selected));
+        if (this.polyline === undefined) {
+            this.polyline = this.node1.group.polyline([...Array(points.length)].map((e) => points[0]))
+                .addClass('edgeOuter')
+                .click(() => this.select());
+            this.polylineInner = this.node1.group.polyline([...Array(points.length)].map((e) => points[0]))
+                .addClass('edgeInner')
+                .click(() => this.select());
+        }
+        this.polyline.animate().plot(points);
+        this.polylineInner.animate().plot(points);
     }
 
     select(selected=true, pan=false) {
@@ -238,7 +316,10 @@ class Edge {
         if (selected) {
             if (this.map.selected)
                 this.map.selected.select(false);
+            this.polyline.front();
+            this.polylineInner.front();
             this.polyline.addClass('selected');
+            this.polylineInner.addClass('selected');
             this.map.selected = this;
             this.node1.prevSelectedIndex = this.node1.children.indexOf(this);
             if (pan) {
@@ -250,21 +331,24 @@ class Edge {
                 const zoom = Math.min((vbb.h / mbb.height), (vbb.h / mbb.height))
                 this.map.pan(vbb.x - dx*zoom, vbb.y - dy*zoom);
             }
-        }
-        else {
+        } else {
             this.polyline.removeClass('selected');
+            this.polylineInner.removeClass('selected');
         }
     }
 }
 
 $(() => {
     const map = new Map();
-    const n1 = map.root.child('test', 'test');
+    const n1 = map.root.child('test1', 'test');
     const n2 = map.root.child('test2', 'test');
     const n3 = map.root.child('test3', 'test');
 
-    n2.child('fgddg', 'dfgdfgg');
-    n2.child('fgddg', 'dfgdfgg');
-    n3.child('child', 'child');
+    n2.child('test21\nhello world', 'test21');
+    n3.child('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'test31');
 
+    setTimeout(() => {
+        n2.child('test22', 'test22');
+        n1.child('test11', 'test11');
+    }, 3000);
 });

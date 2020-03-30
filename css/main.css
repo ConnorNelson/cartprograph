@@ -1,6 +1,11 @@
+body {
+    background-color: black;
+}
+
 #map {
     width: 100%;
     height: 100%;
+    background-color: white;
 }
 
 #map > svg {
@@ -8,37 +13,54 @@
     height: 100%;
 }
 
-circle {
-    fill: gray;
-    stroke: black;
-    stroke-width: 2;
-    opacity: 0.5;
-    cursor: pointer;
-}
-
-rect {
+.nodeOuter {
     rx: 10;
     ry: 10;
     fill: gray;
     stroke: black;
     stroke-width: 2;
-    opacity: 0.5;
     cursor: pointer;
 }
 
-text {
-    font-family: Source Code Pro;
-    text-decoration: underline;
+.nodeInner {
+    rx: 10;
+    ry: 10;
+    fill: lightgray;
+    cursor: pointer;
 }
 
-polyline {
+tspan {
+    font-size: 8;
+    font-family: Source Code Pro;
+}
+
+.edgeOuter {
     fill: none;
     stroke: black;
-    stroke-width: 4;
-    opacity: 0.7;
+    stroke-width: 5;
     cursor: pointer;
 }
 
-.selected {
-    stroke: cyan;
+.edgeInner {
+    fill: none;
+    stroke: gray;
+    stroke-width: 3;
+    cursor: pointer;
+}
+
+.selected.edgeInner {
+    stroke: lightcyan;
+}
+
+.selected.nodeOuter {
+    fill: lightcyan;
+}
+
+.selected.nodeInner {
+    stroke: black;
+    stroke-width: 1;
+}
+
+.hidden {
+    visibility: hidden;
 }
