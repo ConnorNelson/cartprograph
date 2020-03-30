@@ -2,8 +2,11 @@ class Map {
     constructor() {
         this.svg = SVG()
             .addTo('#map')
-            .viewbox(150, -10, 500, 500)
-            .panZoom();
+            .viewbox(150, -50, 500, 500)
+            .panZoom({
+                'zoomMin': 0.5,
+                'zoomMax': 10,
+            });
 
         this.nodes = [];
         this.edges = [];
@@ -13,8 +16,11 @@ class Map {
         this.root = new Node(this, null, '');
         this.root.select();
 
-        // this.svg.on('zoom', (e) => e.preventDefault());
-        // this.svg.on('pinchZoomStart', (e) => e.preventDefault());
+        // function zoom(e) {
+        //     e.preventDefault();
+        // }
+        // this.svg.on('zoom', zoom);
+        // this.svg.on('pinchZoomStart', zoom);
 
         const this_ = this;
 
@@ -99,13 +105,32 @@ class Map {
                 else if (s instanceof Edge)
                     s.node2.select(true, true);
                 break;
+
+            case 'Space':
+                console.log('space'); // TODO: space should do something
+                break;
+            }
+
+
+            if (s.editable) {
+                if (e.key.length === 1)
+                    s.data += e.key;
+                switch (e.key) {
+                case 'Backspace':
+                    s.data = s.data.slice(0, -1);
+                    break;
+                case 'Enter':
+                    s.data += '\n';
+                    break;
+                }
+                s.draw(false);
             }
         });
     }
 
     pan(x, y) {
         const vbb = this.svg.viewbox();
-        this.svg.animate().viewbox(x, y, vbb.w, vbb.h);
+        this.svg.animate({'when': 'now'}).viewbox(x, y, vbb.w, vbb.h);
     }
 }
 
@@ -116,7 +141,7 @@ class Node {
         this.data = data;
 
         this.parentEdge = null;
-
+        this.editable = true;
         this.selected = false;
         this.children = [];
         this.prevSelectedIndex = 0;
@@ -126,67 +151,110 @@ class Node {
         this.draw();
     }
 
-    draw() {
+    draw(animate=true, recursive=true) {
         if (this.group === undefined) {
             this.group = (this.parent ? this.parent.group.group() : this.map.svg.group());
             this.groupHidden = (this.parent ? this.parent.group.group() : this.map.svg.group());
             this.groupHidden.addClass('hidden');
 
-            if (this.parent === null) {
-                this.rect = this.group.circle(50)
-                    .addClass('nodeOuter')
-                    .click(() => this.select());
-                this.groupHidden.circle(50);
+            this.rectHidden = this.parent === null ? this.groupHidden.circle() : this.groupHidden.rect();
+            this.textHidden = this.groupHidden.text('');
 
-            } else {
-                const this_ = this;
-                function text(add) {
-                    this_.data.split(/\r?\n/).forEach((line) => {
-                        line.match(/.{1,20}/g).forEach((str, i, a) => {
-                            add.tspan(str)
-                                .attr({
-                                    'text-decoration': 'underline',
-                                })
-                                .newLine();
-                            if (i < a.length - 1)
-                                add.tspan('\\');
-                        });
+            this.rectShadow = (this.parent === null ? this.group.circle() : this.group.rect())
+                .addClass('shadow');
+            this.rect = (this.parent === null ? this.group.circle() : this.group.rect())
+                .addClass('node')
+                .click(() => this.select());
+            this.text = this.group.text('');
+        }
+
+        const prevBB = this.groupHidden.bbox();
+
+        const shadowOffset = 5;
+
+        if (this.parent === null) {
+            this.rectShadow
+                .attr({
+                    'cx': 25 + shadowOffset,
+                    'cy': 25 + shadowOffset,
+                });
+            this.rect
+                .attr({
+                    'r': 25
+                });
+            this.rectHidden
+                .attr({
+                    'r': 25
+                });
+
+        } else {
+            const this_ = this;
+            function text(add) { // TODO: text should not be entirely redrawn every time, its slow
+                if (!this_.data)
+                    return;
+                const strLength = 20;
+                const reStr = new RegExp('.{1,' + strLength + '}', 'g')
+                const lines = this_.data.split(/\r?\n/);
+                lines.forEach((line, i) => {
+                    if (i > 0 && !lines[i-1])
+                        add.tspan('').newLine();
+                    if (!line) {
+                        return;
+                    }
+                    const strs = line.match(reStr);
+                    strs.forEach((str) => {
+                        add.tspan(str)
+                            .attr({
+                                'text-decoration': 'underline',
+                            })
+                            .newLine();
+                        if (str.length == strLength)
+                            add.tspan('\\');
                     });
+                });
+                if (this_.editable) {
+                    const cursor = add.tspan(this_.selected ? '\u25AE' : '\u25AF');
+                    if (lines) {
+                        const lastLine = lines[lines.length - 1];
+                        if (!lastLine || lastLine.length % strLength == 0)
+                            cursor.newLine();
+                    }
                 }
-
-                const textHidden = this.groupHidden.text(text);
-                const bb = textHidden.bbox();
-                const m = {
-                    'x': 10,
-                    'y': 10,
-                };
-                const min = {
-                    'x': 100,
-                    'y': 100,
-                }
-                this.rect = this.group.rect(Math.max(bb.w + 2*m.x, min.x), Math.max(bb.h + 2*m.y, min.y))
-                    .addClass('nodeOuter')
-                    .attr({
-                        'x': bb.x - m.x,
-                        'y': bb.y - m.y,
-                    })
-                    .click(() => this.select());
-                this.rectInner = this.group.rect(Math.max(bb.w + m.x, min.x - m.x), Math.max(bb.h + m.y, min.y - m.x))
-                    .addClass('nodeInner')
-                    .attr({
-                        'x': bb.x - m.x/2,
-                        'y': bb.y - m.y/2,
-                    })
-                    .click(() => this.select());
-                this.groupHidden.rect(Math.max(bb.w + 2*m.x, min.x), Math.max(bb.h + 2*m.y, min.y))
-                    .attr({
-                        'x': Math.max(bb.x - m.x, min),
-                        'y': Math.max(bb.y - m.y, min),
-                    });
-
-                this.group.text(text);
             }
 
+            this.textHidden.text(text);
+            const bb = this.textHidden.bbox();
+            const m = {
+                'x': 10,
+                'y': 10,
+            };
+            const min = {
+                'x': 100,
+                'y': 100,
+            }
+            this.rectShadow
+                .attr({
+                    'x': bb.x - m.x + shadowOffset,
+                    'y': bb.y - m.y + shadowOffset,
+                    'width': Math.max(bb.w + 2*m.x, min.x),
+                    'height': Math.max(bb.h + 2*m.y, min.y),
+                });
+            this.rect
+                .attr({
+                    'x': bb.x - m.x,
+                    'y': bb.y - m.x,
+                    'width': Math.max(bb.w + 2*m.x, min.x),
+                    'height': Math.max(bb.h + 2*m.y, min.y),
+                });
+            this.rectHidden
+                .attr({
+                    'x': bb.x - m.x,
+                    'y': bb.y - m.y,
+                    'width': Math.max(bb.w + 2*m.x, min.x),
+                    'height': Math.max(bb.h + 2*m.y, min.y),
+                });
+
+            this.text.text(text);
         }
 
         if (this.parent === null) {
@@ -210,19 +278,30 @@ class Node {
             }
         }
 
-        this.group.animate().transform({
-            'translateX': this.x,
-            'translateY': this.y,
-        });
+        (animate ? this.group.animate({'when': 'now'}) : this.group)
+            .transform({
+                'translateX': this.x,
+                'translateY': this.y,
+            });
         this.groupHidden.transform({
             'translateX': this.x,
             'translateY': this.y,
         });
 
-        if (this.parent !== null && this.parent.parent !== null) {
-            this.parent.parent.children.forEach((edge) => {
-                edge.node2.draw();
-                edge.draw();
+        const curBB = this.groupHidden.bbox();
+        var updated = false ||
+            (curBB.x !== prevBB.x) ||
+            (curBB.y !== prevBB.y) ||
+            (curBB.w !== prevBB.w) ||
+            (curBB.h !== prevBB.h);
+        if (recursive && (updated || recursive === 2)) {
+            if (this.parent)
+                this.parent.draw(animate, 2);
+            if (this.parentEdge)
+                this.parentEdge.draw(animate);
+            this.children.forEach((edge) => {
+                edge.node2.draw(animate, false);
+                edge.draw(animate);
             });
         }
     }
@@ -240,8 +319,6 @@ class Node {
             if (this.map.selected && this.map.selected !== this)
                 this.map.selected.select(false);
             this.rect.addClass('selected');
-            if (this.rectInner !== undefined)
-                this.rectInner.addClass('selected');
             this.map.selected = this;
             if (this.parentEdge) {
                 this.parent.prevSelectedIndex = this.parent.children.indexOf(this.parentEdge);
@@ -257,10 +334,9 @@ class Node {
             }
         } else {
             this.rect.removeClass('selected');
-            if (this.rectInner !== undefined)
-                this.rectInner.removeClass('selected');
             this.map.selected = null;
         }
+        this.draw(true, false);
     }
 }
 
@@ -278,13 +354,13 @@ class Edge {
         this.draw();
     }
 
-    draw() {
+    draw(animate=true) {
         const bb1 = this.node1.rect.bbox();
         const bb2 = this.node2.rect.bbox();
         const x1 = bb1.x + bb1.w/2;
-        const y1 = bb1.y + bb1.h;
+        const y1 = bb1.y + bb1.h + 0.5;
         const x2 = this.node2.x + bb2.x + bb2.w/2;
-        const y2 = this.node2.y + bb2.y;
+        const y2 = this.node2.y + bb2.y - 0.5;
 
         const points = [];
         points.push([x1, y1]);
@@ -297,18 +373,19 @@ class Edge {
             points.push([x2, y2]);
         } else {
             points.push([x1, y2]);
+            points.push([x1, y2]);
+            points.push([x1, y2]);
         }
 
         if (this.polyline === undefined) {
             this.polyline = this.node1.group.polyline([...Array(points.length)].map((e) => points[0]))
-                .addClass('edgeOuter')
-                .click(() => this.select());
-            this.polylineInner = this.node1.group.polyline([...Array(points.length)].map((e) => points[0]))
-                .addClass('edgeInner')
+                .addClass('edge')
                 .click(() => this.select());
         }
-        this.polyline.animate().plot(points);
-        this.polylineInner.animate().plot(points);
+        this.node1.group.front();
+        this.node2.group.front();
+        (animate ? this.polyline.animate({'when': 'now'}) : this.polyline)
+            .plot(points);
     }
 
     select(selected=true, pan=false) {
@@ -317,9 +394,7 @@ class Edge {
             if (this.map.selected)
                 this.map.selected.select(false);
             this.polyline.front();
-            this.polylineInner.front();
             this.polyline.addClass('selected');
-            this.polylineInner.addClass('selected');
             this.map.selected = this;
             this.node1.prevSelectedIndex = this.node1.children.indexOf(this);
             if (pan) {
@@ -333,7 +408,6 @@ class Edge {
             }
         } else {
             this.polyline.removeClass('selected');
-            this.polylineInner.removeClass('selected');
         }
     }
 }
