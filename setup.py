@@ -3,22 +3,26 @@ import subprocess
 
 try:
     from setuptools import setup
-    from setuptools import find_packages
-    packages = find_packages()
 except ImportError:
     from distutils.core import setup
-    packages = [x.strip('./').replace('/', '.') for x in os.popen('find -name "__init__.py" | xargs -n1 dirname').read().strip().split('\n')]
+
+import tracer.qemu.build
+tracer.qemu.build.build()
 
 setup(
-      name='cartprograph',
-      python_requires='>=3.8',
-      version='0.1.0',
-      packages=packages,
-      install_requires=[
-          'flask',
-          'flask_socketio',
-          'eventlet',
-      ],
-      dependency_links=[
-      ],
+    name='cartprograph',
+    python_requires='>=3.8',
+    version='0.1.1',
+    packages=[
+        'tracer',
+        'tracer.qemu',
+    ],
+    package_data={
+        'tracer.qemu': ['bin/*'],
+    },
+    install_requires=[
+        'flask',
+        'flask_socketio',
+        'eventlet',
+    ]
 )

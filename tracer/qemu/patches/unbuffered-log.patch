@@ -1,0 +1,32 @@
+From 7cc7a8f03d3e939d093e64310b2bb49941d43a1a Mon Sep 17 00:00:00 2001
+From: Connor Nelson <Connor@ConnorNelson.com>
+Date: Tue, 7 Apr 2020 19:07:08 +0000
+Subject: [PATCH] Unbuffered log
+
+---
+ util/log.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/util/log.c b/util/log.c
+index 2da6cb3..7b8075b 100644
+--- a/util/log.c
++++ b/util/log.c
+@@ -124,13 +124,13 @@ void qemu_set_log(int log_flags)
+         if (log_uses_own_buffers) {
+             static char logfile_buf[4096];
+ 
+-            setvbuf(logfile->fd, logfile_buf, _IOLBF, sizeof(logfile_buf));
++            setvbuf(logfile->fd, logfile_buf, _IONBF, sizeof(logfile_buf));
+         } else {
+ #if defined(_WIN32)
+             /* Win32 doesn't support line-buffering, so use unbuffered output. */
+             setvbuf(logfile->fd, NULL, _IONBF, 0);
+ #else
+-            setvbuf(logfile->fd, NULL, _IOLBF, 0);
++            setvbuf(logfile->fd, NULL, _IONBF, 0);
+ #endif
+             log_append = 1;
+         }
+-- 
+2.17.1
+
