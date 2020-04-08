@@ -1,20 +1,18 @@
 class Map {
-    constructor() {
+    constructor(selector) {
+        this.selector = selector;
         this.svg = SVG()
-            .addTo('#map')
+            .addTo(this.selector)
             .viewbox(150, -50, 500, 500)
             .panZoom({
                 'zoomMin': 0.5,
                 'zoomMax': 10,
             });
 
-        this.nodes = [];
-        this.edges = [];
+        this.nodes = {};
+        this.edges = {};
 
         this.selected = null;
-
-        this.root = new Node(this, null, '');
-        this.root.select();
 
         // function zoom(e) {
         //     e.preventDefault();
@@ -28,9 +26,9 @@ class Map {
             const currentBBox = this_.svg.viewbox(),
                   eventBBox = e.detail.box;
 
-            const viewBBox = $('#map')[0].getBoundingClientRect();
+            const viewBBox = $(this_.selector)[0].getBoundingClientRect();
             var mapBBox = null;
-            this_.nodes.forEach((node) => {
+            Object.entries(this_.nodes).forEach(([_, node]) => {
                 mapBBox = mapBBox ? mapBBox.merge(node.group.rbox()) : node.group.rbox();
             });
 
@@ -114,13 +112,13 @@ class Map {
 
             if (s.editable) {
                 if (e.key.length === 1)
-                    s.data += e.key;
+                    s.data.text += e.key;
                 switch (e.key) {
                 case 'Backspace':
-                    s.data = s.data.slice(0, -1);
+                    s.data.text = s.data.text.slice(0, -1);
                     break;
                 case 'Enter':
-                    s.data += '\n';
+                    s.data.text += '\n';
                     break;
                 }
                 s.draw(false);
@@ -135,10 +133,11 @@ class Map {
 }
 
 class Node {
-    constructor(map, parent, data) {
+    constructor(map, parent, data, edgeData) {
         this.map = map;
         this.parent = parent;
         this.data = data;
+        this.id = data.id;
 
         this.parentEdge = null;
         this.editable = true;
@@ -146,7 +145,14 @@ class Node {
         this.children = [];
         this.prevSelectedIndex = 0;
 
-        this.map.nodes.push(this);
+        this.map.nodes[this.id] = this;
+
+        this.draw();
+
+        if (parent) {
+            this.parentEdge = new Edge(this.map, parent, this, edgeData);
+            this.parent.children.push(this.parentEdge);
+        }
 
         this.draw();
     }
@@ -194,7 +200,7 @@ class Node {
                     return;
                 const strLength = 20;
                 const reStr = new RegExp('.{1,' + strLength + '}', 'g')
-                const lines = this_.data.split(/\r?\n/);
+                const lines = this_.data.text.split(/\r?\n/);
                 lines.forEach((line, i) => {
                     if (i > 0 && !lines[i-1])
                         add.tspan('').newLine();
@@ -306,13 +312,6 @@ class Node {
         }
     }
 
-    child(nodeData, edgeData) {
-        const node = new Node(this.map, this, nodeData);
-        const edge = new Edge(this.map, this, node, edgeData);
-        this.children.push(edge);
-        return node;
-    }
-
     select(selected=true, pan=false) {
         this.selected = selected;
         if (selected) {
@@ -324,7 +323,7 @@ class Node {
                 this.parent.prevSelectedIndex = this.parent.children.indexOf(this.parentEdge);
             }
             if (pan) {
-                const mbb = $('#map')[0].getBoundingClientRect(),
+                const mbb = $(this.map.selector)[0].getBoundingClientRect(),
                       gbb = this.rect.rbox(),
                       vbb = this.map.svg.viewbox();
                 const dx = ((mbb.x + mbb.width/2) - gbb.cx),
@@ -346,10 +345,9 @@ class Edge {
         this.node1 = node1;
         this.node2 = node2;
         this.data = data;
+        this.id = data.id;
 
-        this.map.edges.push(this);
-
-        this.node2.parentEdge = this;
+        this.map.edges[this.id] = this;
 
         this.draw();
     }
@@ -398,7 +396,7 @@ class Edge {
             this.map.selected = this;
             this.node1.prevSelectedIndex = this.node1.children.indexOf(this);
             if (pan) {
-                const mbb = $('#map')[0].getBoundingClientRect(),
+                const mbb = $(this.map.selector)[0].getBoundingClientRect(),
                       gbb = this.polyline.rbox(),
                       vbb = this.map.svg.viewbox();
                 const dx = ((mbb.x + mbb.width/2) - gbb.cx),
@@ -413,16 +411,16 @@ class Edge {
 }
 
 $(() => {
-    const map = new Map();
-    const n1 = map.root.child('test1', 'test');
-    const n2 = map.root.child('test2', 'test');
-    const n3 = map.root.child('test3', 'test');
+    const map = new Map('#map');
 
-    n2.child('test21\nhello world', 'test21');
-    n3.child('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'test31');
+    var socket = io();
 
-    setTimeout(() => {
-        n2.child('test22', 'test22');
-        n1.child('test11', 'test11');
-    }, 3000);
+    socket.on('connect', (e) => {
+        $(map.selector + ' > svg').empty();
+    });
+
+    socket.on('new_node', (e) => {
+        const parent = (e.parent === null) ? null : map.nodes[e.parent];
+        new Node(map, parent, e.data, e.edge_data);
+    });
 });
