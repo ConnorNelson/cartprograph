@@ -1,12 +1,9 @@
-import os
-import re
-
 from .tracer import Tracer, TracerEvent, on_event
 
 
-class InteractionMachine(Tracer):
-    def __init__(self, target_args, interaction):
-        self.interaction = interaction
+class InteractionTracer(Tracer):
+    def __init__(self, target_args):
+        self.interaction = list()
         self.interaction_index = 0
         super().__init__(target_args)
 
