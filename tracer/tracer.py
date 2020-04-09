@@ -40,15 +40,19 @@ class TracerEvent(enum.Enum):
     EXEC_BLOCK = enum.auto()
 
 
+event_count = 0
 def on_event(event, filter_):
+    global event_count
     def wrapper(func):
         if not hasattr(func, 'on_event'):
             func.on_event = []
         func.on_event.append({
+            'id': event_count,
             'event': event,
             'filter': filter_,
         })
         return func
+    event_count += 1
     return wrapper
 
 
@@ -57,24 +61,29 @@ class Tracer:
     EXEC_BLOCK_ENABLED = True
 
     def __init__(self, target_args):
-        self.target = target_args
+        self.target_args = target_args
 
-    def dispatch_event(self, event, *, syscall=None, args=None, result=None, addr=None):
-        l.debug('Dispatching %s (%s)', event, hex(addr) if addr else syscall)
+        self.handlers = list()
         for attr_name in dir(self):
             attr = getattr(self, attr_name)
             if hasattr(attr, 'on_event'):
                 for handler in attr.on_event:
-                    handler_event = handler['event']
-                    filter_ = handler['filter']
-                    if handler_event != event:
-                        continue
-                    if event == TracerEvent.SYSCALL_START and re.match('^' + filter_ + '$', syscall):
-                        attr(syscall, args)
-                    elif event == TracerEvent.SYSCALL_FINISH and re.match('^' + filter_ + '$', syscall):
-                        attr(syscall, args, result)
-                    elif event == TracerEvent.EXEC_BLOCK and (filter_ is ... or addr in filter_):
-                        attr(addr)
+                    self.handlers.append((attr, handler))
+        self.handlers = sorted(self.handlers, key=lambda k: k[1]['id'])
+
+    def dispatch_event(self, event, *, syscall=None, args=None, result=None, addr=None):
+        l.debug('Dispatching %s (%s)', event, hex(addr) if addr else syscall)
+        for func, handler in self.handlers:
+            handler_event = handler['event']
+            filter_ = handler['filter']
+            if handler_event != event:
+                continue
+            if event == TracerEvent.SYSCALL_START and re.match('^' + filter_ + '$', syscall):
+                func(syscall, args)
+            elif event == TracerEvent.SYSCALL_FINISH and re.match('^' + filter_ + '$', syscall):
+                func(syscall, args, result)
+            elif event == TracerEvent.EXEC_BLOCK and (filter_ is ... or addr in filter_):
+                func(addr)
 
     def run(self):
         qemu_log_r, qemu_log_w = os.pipe()
@@ -88,7 +97,7 @@ class Tracer:
 
         popen = subprocess.Popen([QEMU_PATH, '-d', ','.join(log_options),
                                   '-D', qemu_log_path,
-                                  *self.target],
+                                  '--', *self.target_args],
                                  stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
@@ -96,31 +105,40 @@ class Tracer:
 
         reader = RegexReader(qemu_log_r)
 
-        while True:
-            syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)\((?P<args>.*?)\)'
-            syscall_result_re = br' = (?P<result>.*)\n'
-            bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\] \n'
+        try:
+            while True:
+                syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)\((?P<args>.*?)\)'
+                syscall_result_re = br' = (?P<result>.*)\n'
+                bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\] \n'
 
-            match = reader.read_regex(syscall_re, bb_addr_re)
+                match = reader.read_regex(syscall_re, bb_addr_re)
 
-            if match.groupdict().get('addr'):
-                bb_addr_match = match
-                addr = int(bb_addr_match['addr'], 16)
-                self.dispatch_event(TracerEvent.EXEC_BLOCK, addr=addr)
+                if match.groupdict().get('addr'):
+                    bb_addr_match = match
+                    addr = int(bb_addr_match['addr'], 16)
+                    self.dispatch_event(TracerEvent.EXEC_BLOCK, addr=addr)
 
-            elif match.groupdict().get('syscall'):
-                syscall_match = match
-                pid = int(syscall_match['pid'].decode())
-                syscall = syscall_match['syscall'].decode()
-                args = tuple(syscall_match['args'].decode().split(','))
+                elif match.groupdict().get('syscall'):
+                    syscall_match = match
+                    pid = int(syscall_match['pid'].decode())
+                    syscall = syscall_match['syscall'].decode()
+                    args = tuple(syscall_match['args'].decode().split(','))
 
-                self.dispatch_event(TracerEvent.SYSCALL_START, syscall=syscall, args=args)
+                    self.dispatch_event(TracerEvent.SYSCALL_START, syscall=syscall, args=args)
 
-                if 'exit' in syscall:
-                    break
+                    if 'exit' in syscall:
+                        break
 
-                syscall_result_match = reader.read_regex(syscall_result_re)
-                result, _, result_info = syscall_result_match['result'].decode().partition(' ')
-                result = int(result, 16) if result.startswith('0x') else int(result)
+                    syscall_result_match = reader.read_regex(syscall_result_re)
+                    result, _, result_info = syscall_result_match['result'].decode().partition(' ')
+                    result = int(result, 16) if result.startswith('0x') else int(result)
 
-                self.dispatch_event(TracerEvent.SYSCALL_FINISH, syscall=syscall, args=args, result=result)
+                    self.dispatch_event(TracerEvent.SYSCALL_FINISH, syscall=syscall, args=args, result=result)
+
+        finally:
+            popen.kill()
+            popen.stdin.close()
+            popen.stdout.close()
+            popen.stderr.close()
+            os.close(qemu_log_r)
+            os.close(qemu_log_w)
