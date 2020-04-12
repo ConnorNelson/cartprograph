@@ -2,15 +2,16 @@ import os
 import re
 import subprocess
 import enum
+import json
 import logging
 
-import tracer.qemu
+from .qemu import qemu_path
 
 
 l = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-QEMU_PATH = tracer.qemu.qemu_path('x86_64')
+QEMU_PATH = qemu_path('x86_64')
 
 
 class RegexReader:
@@ -106,7 +107,14 @@ class Tracer:
         reader = RegexReader(qemu_log_r)
 
         try:
+            execve_args = (json.dumps(self.target_args[0]),
+                           json.dumps(self.target_args),
+                           json.dumps({}))
+            self.dispatch_event(TracerEvent.SYSCALL_START, syscall='execve', args=execve_args)
+            self.dispatch_event(TracerEvent.SYSCALL_FINISH, syscall='execve', args=execve_args, result=None)
+
             while True:
+                # TODO: fix syscall detection, ')' and ',' can cause problems
                 syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)\((?P<args>.*?)\)'
                 syscall_result_re = br' = (?P<result>.*)\n'
                 bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\] \n'

@@ -23,7 +23,10 @@ QEMU_TARGETS = [
     'aarch64-linux-user',
 ]
 
-def build():
+def build(rebuild=False):
+    if not rebuild and list(BIN_DIR.iterdir()):
+        return
+
     with TemporaryDirectory() as work_dir:
         check_call(['git',
                     'clone',

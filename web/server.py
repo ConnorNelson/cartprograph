@@ -1,50 +1,18 @@
 #!/usr/bin/env python
 
-import string
-import random
+import eventlet
+eventlet.monkey_patch()
 
+import json
+
+import redis
 from flask import Flask, render_template
 from flask_socketio import SocketIO, emit
 
 
+redis_client = redis.Redis(host='localhost', port=6379)
 app = Flask(__name__)
-socketio = SocketIO(app)
-
-
-def random_id():
-    return int(''.join(random.choice(string.digits) for _ in range(16)))
-
-
-class Node:
-    nodes = {}
-
-    def __init__(self, parent, *, id_=None, text=''):
-        self.parent = parent
-        self.parentEdge = Edge(parent, self) if parent else None
-        self.children = []
-
-        self.id_ = random_id() if id_ is None else id_
-        self.text = text
-
-        if self.parent:
-            self.parent.children.append(self)
-
-        self.nodes[self.id_] = self
-
-Node.root = Node(None, id_=0)
-
-
-class Edge:
-    edges = {}
-
-    def __init__(self, node1, node2, *, text=''):
-        self.node1 = node1
-        self.node2 = node2
-
-        self.id_ = random_id()
-        self.text = text
-
-        self.edges[self.id_] = self
+socketio = SocketIO(app, message_queue='redis://localhost:6379/')
 
 
 @app.route("/")
@@ -54,27 +22,27 @@ def index_route():
 
 @socketio.on('connect')
 def on_connect():
-    def recursive_emit(node):
-        emit('new_node', {
-            'parent': node.parent.id_ if node.parent else None,
-            'data': {
-                'id': node.id_,
-                'text': node.text,
-            },
-            'edge_data': {
-                'id': node.parentEdge.id_,
-                'text': node.parentEdge.text,
-            } if node.parentEdge else None,
+    def recursive_emit(node_id):
+        node = json.loads(redis_client.get(f'node.{node_id}'))
+        parent_id = node['parent_id']
+        if parent_id is not None:
+            edge = json.loads(redis_client.get(f'edge.{parent_id}.{node_id}'))
+        else:
+            edge = None
+
+        emit('update', {
+            'node': node,
+            'edge': edge,
         })
-        for child in node.children:
-            recursive_emit(child)
-    recursive_emit(Node.root)
+
+        children_edges = redis_client.keys(f'edge.{node_id}.*')
+        for child_edge in children_edges:
+            _, _, child_id = child_edge.decode().split('.')
+            child_id = int(child_id)
+            recursive_emit(child_id)
+
+    recursive_emit(0)
 
 
 if __name__ == "__main__":
-    node1 = Node(Node.root, text='hello world... 1')
-    node2 = Node(Node.root, text='hello world... 2')
-    node3 = Node(Node.root, text='hello world... 3')
-    node4 = Node(Node.root, text='hello world... 3')
-
     socketio.run(app, host='0.0.0.0', port=4242)

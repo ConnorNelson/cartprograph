@@ -10,7 +10,6 @@ class Map {
             });
 
         this.nodes = {};
-        this.edges = {};
 
         this.selected = null;
 
@@ -112,13 +111,13 @@ class Map {
 
             if (s.editable) {
                 if (e.key.length === 1)
-                    s.data.text += e.key;
+                    s.io.data += e.key;
                 switch (e.key) {
                 case 'Backspace':
-                    s.data.text = s.data.text.slice(0, -1);
+                    s.io.data = s.io.data.slice(0, -1);
                     break;
                 case 'Enter':
-                    s.data.text += '\n';
+                    s.io.data += '\n';
                     break;
                 }
                 s.draw(false);
@@ -136,16 +135,34 @@ class Node {
     constructor(map, parent, data, edgeData) {
         this.map = map;
         this.parent = parent;
-        this.data = data;
+
         this.id = data.id;
 
+        if (data.interaction.length !== 1) {
+            throw "Node interaction length should be 1";
+        }
+        this.interaction = data.interaction[0];
+
+        this.content = '';
+        this.shape = 'rect';
         this.parentEdge = null;
-        this.editable = true;
+        this.editable = false;
         this.selected = false;
         this.children = [];
         this.prevSelectedIndex = 0;
 
         this.map.nodes[this.id] = this;
+
+        if (this.interaction.io !== undefined) {
+            this.content = this.interaction.io.data;
+        }
+        switch (this.interaction.syscall) {
+        case 'execve':
+        case 'exit':
+        case 'exit_group':
+            this.shape = 'circle';
+            break;
+        }
 
         this.draw();
 
@@ -155,6 +172,10 @@ class Node {
         }
 
         this.draw();
+
+        if (this.parent === null) {
+            this.select();
+        }
     }
 
     draw(animate=true, recursive=true) {
@@ -163,12 +184,12 @@ class Node {
             this.groupHidden = (this.parent ? this.parent.group.group() : this.map.svg.group());
             this.groupHidden.addClass('hidden');
 
-            this.rectHidden = this.parent === null ? this.groupHidden.circle() : this.groupHidden.rect();
+            this.rectHidden = this.shape === 'circle' ? this.groupHidden.circle() : this.groupHidden.rect();
             this.textHidden = this.groupHidden.text('');
 
-            this.rectShadow = (this.parent === null ? this.group.circle() : this.group.rect())
+            this.rectShadow = (this.shape === 'circle' ? this.group.circle() : this.group.rect())
                 .addClass('shadow');
-            this.rect = (this.parent === null ? this.group.circle() : this.group.rect())
+            this.rect = (this.shape === 'circle' ? this.group.circle() : this.group.rect())
                 .addClass('node')
                 .click(() => this.select());
             this.text = this.group.text('');
@@ -178,11 +199,12 @@ class Node {
 
         const shadowOffset = 5;
 
-        if (this.parent === null) {
+        if (this.shape === 'circle') {
             this.rectShadow
                 .attr({
-                    'cx': 25 + shadowOffset,
-                    'cy': 25 + shadowOffset,
+                    'cx': shadowOffset,
+                    'cy': shadowOffset,
+                    'r': 25,
                 });
             this.rect
                 .attr({
@@ -196,11 +218,11 @@ class Node {
         } else {
             const this_ = this;
             function text(add) { // TODO: text should not be entirely redrawn every time, its slow
-                if (!this_.data)
+                if (!this_.content)
                     return;
-                const strLength = 20;
+                const strLength = 40;
                 const reStr = new RegExp('.{1,' + strLength + '}', 'g')
-                const lines = this_.data.text.split(/\r?\n/);
+                const lines = this_.content.split(/\r?\n/);
                 lines.forEach((line, i) => {
                     if (i > 0 && !lines[i-1])
                         add.tspan('').newLine();
@@ -269,7 +291,7 @@ class Node {
 
         } else {
             const bb = this.parent.rect.bbox();
-            const m = 50;
+            const m = 75;
 
             this.x = 0;
             this.y = bb.h + m;
@@ -344,10 +366,8 @@ class Edge {
         this.map = map;
         this.node1 = node1;
         this.node2 = node2;
-        this.data = data;
-        this.id = data.id;
 
-        this.map.edges[this.id] = this;
+        this.data = data;
 
         this.draw();
     }
@@ -410,8 +430,10 @@ class Edge {
     }
 }
 
+
+var map = null;
 $(() => {
-    const map = new Map('#map');
+    map = new Map('#map');
 
     var socket = io();
 
@@ -419,8 +441,12 @@ $(() => {
         $(map.selector + ' > svg').empty();
     });
 
-    socket.on('new_node', (e) => {
-        const parent = (e.parent === null) ? null : map.nodes[e.parent];
-        new Node(map, parent, e.data, e.edge_data);
+    socket.on('update', (e) => {
+        console.log(e);
+        const node_data = e.node;
+        const edge_data = e.edge;
+        const parent = (node_data.parent_id === null) ?
+              null : map.nodes[node_data.parent_id];
+        new Node(map, parent, node_data, edge_data);
     });
 });

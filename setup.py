@@ -35,9 +35,11 @@ setup(
     },
     install_requires=[
         'setuptools',
+        'networkx',
         'flask',
         'flask_socketio',
         'eventlet',
+        'redis',
     ],
     cmdclass={
         'build': build,

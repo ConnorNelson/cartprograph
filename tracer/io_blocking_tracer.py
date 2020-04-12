@@ -8,6 +8,12 @@ class IO:
         self.direction = direction
         self.data = data
 
+    def __eq__(self, other):
+        return (type(self) is type(other) and
+                self.channel == other.channel and
+                self.direction == other.direction and
+                self.data == other.data)
+
     def __repr__(self):
         return f'<IO channel={self.channel} direction={self.direction} data={self.data}>'
 
@@ -21,8 +27,8 @@ class Block(Exception):
 
 
 class IOBlockingTracer(InteractionTracer):
-    def __init__(self, target_args, handle_block):
-        super().__init__(target_args)
+    def __init__(self, target_args, handle_block=None, *, interaction=None):
+        super().__init__(target_args, interaction=interaction)
         self.handle_block = handle_block
 
     def run(self):
@@ -33,7 +39,10 @@ class IOBlockingTracer(InteractionTracer):
             except Block as e:
                 if prev_block is False:
                     break
-                prev_block = self.handle_block(e)
+                elif self.handle_block:
+                    prev_block = self.handle_block(e)
+                else:
+                    raise e
             except KeyboardInterrupt:
                 print('Interrupted on', machine.current_interaction)
                 break
@@ -57,7 +66,11 @@ class IOBlockingTracer(InteractionTracer):
         if fd == 1:
             output = self.stdout.read(result)
             assert len(output) == result
-            self.prev_interaction['io'] = IO('stdout', 'write', output)
+            io = IO('stdout', 'write', output)
+            if 'io' in self.prev_interaction:
+                assert self.prev_interaction['io'] == io
+            else:
+                self.prev_interaction['io'] = io
 
     @on_event(TracerEvent.SYSCALL_FINISH, 'write')
     def on_write_stderr(self, syscall, args, result):
@@ -65,4 +78,8 @@ class IOBlockingTracer(InteractionTracer):
         if fd == 2:
             output = self.stdout.read(result)
             assert len(output) == result
-            self.prev_interaction['io'] = IO('stderr', 'write', output)
+            io = IO('stderr', 'write', output)
+            if 'io' in self.prev_interaction:
+                assert self.prev_interaction['io'] == io
+            else:
+                self.prev_interaction['io'] = io

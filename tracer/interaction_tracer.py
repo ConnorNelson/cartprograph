@@ -2,8 +2,8 @@ from .tracer import Tracer, TracerEvent, on_event
 
 
 class InteractionTracer(Tracer):
-    def __init__(self, target_args):
-        self.interaction = list()
+    def __init__(self, target_args, *, interaction=None):
+        self.interaction = interaction if interaction is not None else list()
         self.interaction_index = 0
         super().__init__(target_args)
 
