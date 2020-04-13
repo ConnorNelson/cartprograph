@@ -44,5 +44,12 @@ def on_connect():
     recursive_emit(0)
 
 
+@socketio.on('input')
+def on_input(node):
+    node_id = node['id']
+    redis_client.set(f'node.{node_id}', json.dumps(node))
+    redis_client.publish('event.input', node_id)
+
+
 if __name__ == "__main__":
     socketio.run(app, host='0.0.0.0', port=4242)

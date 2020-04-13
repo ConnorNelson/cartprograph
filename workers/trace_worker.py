@@ -15,7 +15,7 @@ def serialize_interaction(interaction):
             e['io'] = {
                 'channel': io.channel,
                 'direction': io.direction,
-                'data': io.data.decode('latin')
+                'data': io.data.decode('latin') if io.data is not None else None
             }
         if 'action' in e:
             del e['action']
@@ -24,12 +24,13 @@ def serialize_interaction(interaction):
 
 def deserialize_interaction(interaction):
     for e in interaction:
+        e['args'] = tuple(e['args'])
         if 'io' in e:
             io = e['io']
-            io = IO(io['channel'], io['direction'], io['data'].encode('latin'))
+            io = IO(io['channel'], io['direction'], io['data'].encode('latin') if io['data'] is not None else None)
             e['io'] = io
 
-            if io.channel == 'stdin' and io.direction == 'read':
+            if io.channel == 'stdin' and io.direction == 'read' and io.data is not None:
                 def action(machine, syscall, args, *, data=io.data):
                     if data:
                         machine.stdin.write(data)
@@ -50,7 +51,7 @@ def main():
 
         interaction = deserialize_interaction(trace['interaction'])
 
-        machine = IOBlockingTracer(['/bin/cat', '/etc/passwd', '/proc/1/cmdline'],
+        machine = IOBlockingTracer(['/bin/cat'],
                                    interaction=interaction)
 
         try:

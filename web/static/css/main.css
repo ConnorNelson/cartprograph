@@ -23,11 +23,29 @@ body {
     cursor: pointer;
 }
 
+.node.output {
+    fill: #778;
+}
+
+.node.input {
+    fill: #787;
+}
+
+.node.input-pending {
+    fill: #887;
+}
+
 tspan {
     fill: #ddd;
     font-size: 8;
     font-family: Source Code Pro;
     white-space: pre;
+}
+
+.header {
+    text-anchor: middle;
+    font-size: 12;
+    font-weight: bold;
 }
 
 .edge {
@@ -39,6 +57,7 @@ tspan {
 
 .selected {
     stroke: lightcyan;
+    stroke-width: 3;
 }
 
 /* .selected.nodeInner { */

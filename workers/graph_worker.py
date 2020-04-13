@@ -25,17 +25,23 @@ def handle_input_event(event):
     tree.add_node(node['id'], **node)
 
     interaction = []
+    root = tree.nodes()[0]
+    interaction.extend(root['interaction'])
     path = nx.shortest_path(tree, 0, node['id'])
     for n1, n2 in zip(path, path[1:]):
-        edge = nx.edges()[n1, n2]
+        node1 = tree.nodes()[n1]
+        node2 = tree.nodes()[n2]
+        edge = tree.edges()[n1, n2]
         interaction.extend(edge['interaction'])
-        interaction.extend(n2['interaction'])
+        interaction.extend(node2['interaction'])
 
     trace = json.dumps({
         'node_id': node_id,
         'interaction': interaction,
     })
     redis_client.rpush('work.trace', trace)
+
+    redis_client.publish('event.node', node_id)
 
 
 def handle_trace_event(event):
@@ -52,12 +58,16 @@ def handle_trace_event(event):
     l.info('New Trace: %d', node_id)
 
     interaction_index = 0
+    root = tree.nodes()[0]
+    interaction_index += len(root['interaction'])
     path = nx.shortest_path(tree, 0, node_id)
     for n1, n2 in zip(path, path[1:]):
-        edge = nx.edges()[n1, n2]
+        node1 = tree.nodes()[n1]
+        node2 = tree.nodes()[n2]
+        edge = tree.edges()[n1, n2]
         interaction_index += len(edge['interaction'])
         if n2 != node_id:
-            interaction_index += len(n2['interaction'])
+            interaction_index += len(node2['interaction'])
     interaction = interaction[interaction_index:]
 
     def io_partitioned_interactions():
@@ -75,8 +85,6 @@ def handle_trace_event(event):
 
     partitions = iter(io_partitioned_interactions())
 
-    # if node_id != 0:
-    # if True:
     _ = next(partitions)
     tree.nodes()[node_id]['interaction'] = next(partitions)
     redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
@@ -115,7 +123,7 @@ def main():
     for node in nodes:
         tree.add_node(node['id'], **node)
     for edge in edges:
-        tree.add_edge(node['start_node_id'], node['end_node_id'], **edge)
+        tree.add_edge(edge['start_node_id'], edge['end_node_id'], **edge)
 
     if not nodes:
         node_id = 0
@@ -125,7 +133,6 @@ def main():
             'interaction': [],
         })
         redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
-        # redis_client.publish('event.node', node_id)
 
         trace = json.dumps({
             'node_id': node_id,

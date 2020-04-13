@@ -58,6 +58,7 @@ class IOBlockingTracer(InteractionTracer):
     def on_read_stdin(self, syscall, args):
         fd = int(args[0])
         if 'action' not in self.current_interaction and fd == 0:
+            self.current_interaction['io'] = IO('stdin', 'read', None)
             raise Block(self, syscall, args)
 
     @on_event(TracerEvent.SYSCALL_FINISH, 'write')

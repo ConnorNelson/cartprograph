@@ -117,7 +117,13 @@ class Map {
                     s.io.data = s.io.data.slice(0, -1);
                     break;
                 case 'Enter':
-                    s.io.data += '\n';
+                    if (!e.ctrlKey) {
+                        s.io.data += '\n';
+                    } else {
+                        s.editable = false;
+                        s.draw();
+                        socket.emit('input', s.data);
+                    }
                     break;
                 }
                 s.draw(false);
@@ -136,35 +142,18 @@ class Node {
         this.map = map;
         this.parent = parent;
 
+        this.data = data;
         this.id = data.id;
 
-        if (data.interaction.length !== 1) {
-            throw "Node interaction length should be 1";
-        }
-        this.interaction = data.interaction[0];
-
-        this.content = '';
         this.shape = 'rect';
         this.parentEdge = null;
         this.editable = false;
         this.selected = false;
         this.children = [];
         this.prevSelectedIndex = 0;
-
         this.map.nodes[this.id] = this;
 
-        if (this.interaction.io !== undefined) {
-            this.content = this.interaction.io.data;
-        }
-        switch (this.interaction.syscall) {
-        case 'execve':
-        case 'exit':
-        case 'exit_group':
-            this.shape = 'circle';
-            break;
-        }
-
-        this.draw();
+        this.update(data);
 
         if (parent) {
             this.parentEdge = new Edge(this.map, parent, this, edgeData);
@@ -176,6 +165,27 @@ class Node {
         if (this.parent === null) {
             this.select();
         }
+    }
+
+    update(data) {
+        this.data = data;
+
+        if (this.data.interaction.length !== 1) {
+            throw "Node interaction length should be 1";
+        }
+        this.interaction = this.data.interaction[0];
+        this.io = this.interaction.io;
+        if (this.io && this.io.data === null) {
+            this.io.data = '';
+            this.editable = true;
+        } else {
+            this.editable = false;
+        }
+        if (['execve', 'exit', 'exit_group'].includes(this.interaction.syscall)) {
+            this.shape = 'circle';
+        }
+
+        this.draw();
     }
 
     draw(animate=true, recursive=true) {
@@ -218,11 +228,18 @@ class Node {
         } else {
             const this_ = this;
             function text(add) { // TODO: text should not be entirely redrawn every time, its slow
-                if (!this_.content)
+                if (!this_.io)
                     return;
+
+                const header = add.tspan(this_.io.direction + ' (' + this_.io.channel + ')')
+                      .addClass('header')
+                      .newLine();
+
+                add.tspan('').newLine();
+
                 const strLength = 40;
                 const reStr = new RegExp('.{1,' + strLength + '}', 'g')
-                const lines = this_.content.split(/\r?\n/);
+                const lines = this_.io.data.split(/\r?\n/);
                 lines.forEach((line, i) => {
                     if (i > 0 && !lines[i-1])
                         add.tspan('').newLine();
@@ -248,6 +265,10 @@ class Node {
                             cursor.newLine();
                     }
                 }
+
+                header.attr({
+                    'dx': add.bbox().width / 2,
+                });
             }
 
             this.textHidden.text(text);
@@ -282,6 +303,20 @@ class Node {
                     'height': Math.max(bb.h + 2*m.y, min.y),
                 });
 
+            switch (this.io.direction) {
+            case 'write':
+                this.rect.addClass('output');
+                break;
+            case 'read':
+                if (!this.editable) {
+                    this.rect.removeClass('input-pending');
+                    this.rect.addClass('input');
+                } else {
+                    this.rect.addClass('input-pending');
+                }
+                break;
+            }
+
             this.text.text(text);
         }
 
@@ -291,7 +326,7 @@ class Node {
 
         } else {
             const bb = this.parent.rect.bbox();
-            const m = 75;
+            const m = 50;
 
             this.x = 0;
             this.y = bb.h + m;
@@ -382,7 +417,7 @@ class Edge {
 
         const points = [];
         points.push([x1, y1]);
-        const t = 50;
+        const t = this.node2.shape === 'circle' ? 0 : 50;
         if (Math.abs(x1 - x2) > t) {
             const xm = (x1 + x2) / 2;
             const ym = (y1 + y2) / 2;
@@ -432,21 +467,31 @@ class Edge {
 
 
 var map = null;
+var socket = null;
+
 $(() => {
     map = new Map('#map');
-
-    var socket = io();
+    socket = io();
 
     socket.on('connect', (e) => {
         $(map.selector + ' > svg').empty();
     });
 
+    var i = 0;
     socket.on('update', (e) => {
-        console.log(e);
-        const node_data = e.node;
-        const edge_data = e.edge;
-        const parent = (node_data.parent_id === null) ?
-              null : map.nodes[node_data.parent_id];
-        new Node(map, parent, node_data, edge_data);
+        setTimeout(() => {
+            const node_data = e.node;
+            const edge_data = e.edge;
+            if (map.nodes[node_data.id] !== undefined) {
+                const node = map.nodes[node_data.id];
+                node.update(node_data);
+            } else {
+                const parent = (node_data.parent_id === null) ?
+                      null : map.nodes[node_data.parent_id];
+                new Node(map, parent, node_data, edge_data);
+            }
+            i -= 500;
+        }, i);
+        i += 500;
     });
 });
