@@ -60,11 +60,18 @@ tspan {
     stroke-width: 3;
 }
 
-/* .selected.nodeInner { */
-/*     stroke: black; */
-/*     stroke-width: 1; */
-/* } */
-
 .hidden {
     visibility: hidden;
+}
+
+.modal {
+    opacity: 0.75;
+}
+
+.modal-backdrop.show {
+    opacity: 0;
+}
+
+code {
+    font-family: Source Code Pro;
 }

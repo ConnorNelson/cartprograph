@@ -120,8 +120,6 @@ class Map {
                     if (!e.ctrlKey) {
                         s.io.data += '\n';
                     } else {
-                        s.editable = false;
-                        s.draw();
                         socket.emit('input', s.data);
                     }
                     break;
@@ -201,7 +199,7 @@ class Node {
                 .addClass('shadow');
             this.rect = (this.shape === 'circle' ? this.group.circle() : this.group.rect())
                 .addClass('node')
-                .click(() => this.select());
+                .click(() => this.select(true, false, true));
             this.text = this.group.text('');
         }
 
@@ -369,7 +367,7 @@ class Node {
         }
     }
 
-    select(selected=true, pan=false) {
+    select(selected=true, pan=false, modal=false) {
         this.selected = selected;
         if (selected) {
             if (this.map.selected && this.map.selected !== this)
@@ -387,6 +385,22 @@ class Node {
                       dy = ((mbb.y + mbb.height/2) - gbb.cy);
                 const zoom = Math.min((vbb.h / mbb.height), (vbb.h / mbb.height))
                 this.map.pan(vbb.x - dx*zoom, vbb.y - dy*zoom);
+            }
+            if (modal || $('#infoModal').is(':visible')) {
+                $('#infoModalLabel').text('Node ' + this.id);
+                const syscallGroup = $('<ul>').addClass('list-group');
+                this.data.interaction.forEach((e) => {
+                    const item = $('<li>').addClass('list-group-item');
+                    const code = $('<code>');
+                    code.text(e.syscall + '(' + e.args.join(', ') + ')' +
+                              (e.result == null ? '' : ' = ' +
+                               (e.result < 4096 ? e.result : '0x' + e.result.toString(16))));
+                    item.append(code);
+                    syscallGroup.append(item);
+                });
+                $('#syscallTab').empty();
+                $('#syscallTab').append(syscallGroup);
+                $('#infoModal').modal();
             }
         } else {
             this.rect.removeClass('selected');
@@ -433,7 +447,7 @@ class Edge {
         if (this.polyline === undefined) {
             this.polyline = this.node1.group.polyline([...Array(points.length)].map((e) => points[0]))
                 .addClass('edge')
-                .click(() => this.select());
+                .click(() => this.select(true, false, true));
         }
         this.node1.group.front();
         this.node2.group.front();
@@ -441,7 +455,7 @@ class Edge {
             .plot(points);
     }
 
-    select(selected=true, pan=false) {
+    select(selected=true, pan=false, modal=false) {
         this.selected = selected;
         if (selected) {
             if (this.map.selected)
@@ -459,6 +473,23 @@ class Edge {
                 const zoom = Math.min((vbb.h / mbb.height), (vbb.h / mbb.height))
                 this.map.pan(vbb.x - dx*zoom, vbb.y - dy*zoom);
             }
+            if (modal || $('#infoModal').is(':visible')) {
+                $('#infoModalLabel').text('Node ' + this.node1.id + ' \u2192 ' +
+                                          'Node ' + this.node2.id);
+                const syscallGroup = $('<ul>').addClass('list-group');
+                this.data.interaction.forEach((e) => {
+                    const item = $('<li>').addClass('list-group-item');
+                    const code = $('<code>');
+                    code.text(e.syscall + '(' + e.args.join(', ') + ')' +
+                              (e.result == null ? '' : ' = ' +
+                               (e.result < 4096 ? e.result : '0x' + e.result.toString(16))));
+                    item.append(code);
+                    syscallGroup.append(item);
+                });
+                $('#syscallTab').empty();
+                $('#syscallTab').append(syscallGroup);
+                $('#infoModal').modal();
+            }
         } else {
             this.polyline.removeClass('selected');
         }
@@ -473,8 +504,12 @@ $(() => {
     map = new Map('#map');
     socket = io();
 
+    var connected = false;
     socket.on('connect', (e) => {
-        $(map.selector + ' > svg').empty();
+        if (connected) {
+            window.location.reload();
+        }
+        connected = true;
     });
 
     var i = 0;

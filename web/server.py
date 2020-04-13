@@ -22,7 +22,9 @@ def index_route():
 
 @socketio.on('connect')
 def on_connect():
-    def recursive_emit(node_id):
+    node_ids = sorted([int(n.decode().split('.')[1])
+                       for n in redis_client.keys(f'node.*')])
+    for node_id in node_ids:
         node = json.loads(redis_client.get(f'node.{node_id}'))
         parent_id = node['parent_id']
         if parent_id is not None:
@@ -35,20 +37,10 @@ def on_connect():
             'edge': edge,
         })
 
-        children_edges = redis_client.keys(f'edge.{node_id}.*')
-        for child_edge in children_edges:
-            _, _, child_id = child_edge.decode().split('.')
-            child_id = int(child_id)
-            recursive_emit(child_id)
-
-    recursive_emit(0)
-
 
 @socketio.on('input')
 def on_input(node):
-    node_id = node['id']
-    redis_client.set(f'node.{node_id}', json.dumps(node))
-    redis_client.publish('event.input', node_id)
+    redis_client.publish('event.input', json.dumps(node))
 
 
 if __name__ == "__main__":

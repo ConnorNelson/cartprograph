@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 
 import json
-import random
-import string
+import itertools
 import logging
 
 import redis
@@ -14,15 +13,27 @@ logging.basicConfig(level=logging.INFO)
 
 redis_client = redis.Redis(host='localhost', port=6379)
 tree = nx.DiGraph()
+new_id = itertools.count()
 
 
 def handle_input_event(event):
-    node_id = int(event['data'])
-    node = json.loads(redis_client.get(f'node.{node_id}'))
+    node = json.loads(event['data'])
+    node_id = node['id']
+
+    prev_node_id = node['parent_id']
+    edge = tree.edges()[prev_node_id, node_id]
+
+    node_id = next(new_id)
+    node['id'] = node_id
 
     l.info('New Input: %d', node_id)
 
-    tree.add_node(node['id'], **node)
+    tree.add_node(node_id, **node)
+    tree.add_edge(prev_node_id, node_id, **edge)
+    redis_client.set(f'edge.{prev_node_id}.{node_id}',
+                     json.dumps(tree.edges()[prev_node_id, node_id]))
+    redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
+    redis_client.publish('event.node', node_id)
 
     interaction = []
     root = tree.nodes()[0]
@@ -40,8 +51,6 @@ def handle_input_event(event):
         'interaction': interaction,
     })
     redis_client.rpush('work.trace', trace)
-
-    redis_client.publish('event.node', node_id)
 
 
 def handle_trace_event(event):
@@ -80,9 +89,6 @@ def handle_trace_event(event):
             else:
                 current.append(e)
 
-    def random_id():
-        return int(''.join(random.choice(string.digits) for _ in range(16)))
-
     partitions = iter(io_partitioned_interactions())
 
     _ = next(partitions)
@@ -93,7 +99,7 @@ def handle_trace_event(event):
     prev_node_id = node_id
     for edge_partition in partitions:
         node_partition = next(partitions)
-        node_id = random_id()
+        node_id = next(new_id)
         tree.add_node(node_id, **{
             'id': node_id,
             'parent_id': prev_node_id,
@@ -126,8 +132,8 @@ def main():
         tree.add_edge(edge['start_node_id'], edge['end_node_id'], **edge)
 
     if not nodes:
-        node_id = 0
-        tree.add_node(0, **{
+        node_id = next(new_id)
+        tree.add_node(node_id, **{
             'id': node_id,
             'parent_id': None,
             'interaction': [],
