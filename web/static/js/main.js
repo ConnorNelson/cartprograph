@@ -388,6 +388,17 @@ class Node {
             }
             if (modal || $('#infoModal').is(':visible')) {
                 $('#infoModalLabel').text('Node ' + this.id);
+                $('#ioTab').empty();
+                var node = this;
+                while (node.parent) {
+                    if (node.io !== undefined) {
+                        const text = $('<pre>');
+                        text.css('color', node.io.direction === 'read' ? 'gold' : 'black')
+                        text.text(node.io.data);
+                        $('#ioTab').prepend(text);
+                    }
+                    node = node.parent;
+                }
                 const syscallGroup = $('<ul>').addClass('list-group');
                 this.data.interaction.forEach((e) => {
                     const item = $('<li>').addClass('list-group-item');
@@ -476,6 +487,17 @@ class Edge {
             if (modal || $('#infoModal').is(':visible')) {
                 $('#infoModalLabel').text('Node ' + this.node1.id + ' \u2192 ' +
                                           'Node ' + this.node2.id);
+                $('#ioTab').empty();
+                var node = this.node1;
+                while (node.parent) {
+                    if (node.io !== undefined) {
+                        const text = $('<pre>');
+                        text.css('color', node.io.direction === 'read' ? 'gold' : 'black')
+                        text.text(node.io.data);
+                        $('#ioTab').prepend(text);
+                    }
+                    node = node.parent;
+                }
                 const syscallGroup = $('<ul>').addClass('list-group');
                 this.data.interaction.forEach((e) => {
                     const item = $('<li>').addClass('list-group-item');

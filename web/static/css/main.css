@@ -72,6 +72,10 @@ tspan {
     opacity: 0;
 }
 
+#ioTab {
+    background-color: grey;
+}
+
 code {
     font-family: Source Code Pro;
 }
