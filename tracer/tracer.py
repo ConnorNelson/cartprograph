@@ -114,8 +114,13 @@ class Tracer:
             self.dispatch_event(TracerEvent.SYSCALL_FINISH, syscall='execve', args=execve_args, result=None)
 
             while True:
-                # TODO: fix syscall detection, ')' and ',' can cause problems
-                syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)\((?P<args>.*?)\)'
+                # syscall_re is very delicate because args terminator ')' can and does appear inside an arg
+                # ?P<args> tries to find args that end with ' =', as this appears before the return result
+                # ?P<args_blocked> handles the case where the syscall is blocked, which will not end in ' ='
+                # in this case, the line must end with a ')'
+                # line end must occur because otherwise potential race condition could occur in non-blocked syscall midway through logging it
+                # fortunately, this should be mitigated by a ',' if there are more args
+                syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)((\((?P<args>.*?)\)(?= =))|(\((?P<args_blocked>.*?)\)$))'
                 syscall_result_re = br' = (?P<result>.*)\n'
                 bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\] \n'
 
@@ -130,7 +135,11 @@ class Tracer:
                     syscall_match = match
                     pid = int(syscall_match['pid'].decode())
                     syscall = syscall_match['syscall'].decode()
-                    args = tuple(syscall_match['args'].decode().split(','))
+                    if syscall_match['args'] is not None:
+                        args = syscall_match['args']
+                    else:
+                        args = syscall_match['args_blocked']
+                    args = tuple(arg.strip() for arg in args.decode().split(','))
 
                     self.dispatch_event(TracerEvent.SYSCALL_START, syscall=syscall, args=args)
 
