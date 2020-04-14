@@ -5,6 +5,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from subprocess import check_call
 
+
 BASE_DIR = Path(__file__).resolve().parent
 PATCHES_DIR = BASE_DIR / 'patches'
 BIN_DIR = BASE_DIR / 'bin'
@@ -23,8 +24,9 @@ QEMU_TARGETS = [
     'aarch64-linux-user',
 ]
 
+
 def build(rebuild=False):
-    if not rebuild and list(BIN_DIR.iterdir()):
+    if not rebuild and BIN_DIR.exists() and list(BIN_DIR.iterdir()):
         return
 
     with TemporaryDirectory() as work_dir:
@@ -41,6 +43,7 @@ def build(rebuild=False):
 
         targets = ','.join(QEMU_TARGETS)
         check_call(['./configure',
+                    '--static',
                     f'--target-list={targets}',
                     f'--python={executable}',
                     '--disable-werror'],
@@ -54,6 +57,7 @@ def build(rebuild=False):
             arch = target.split('-')[0]
             qemu_bin = Path(work_dir) / target / f'qemu-{arch}'
             qemu_bin.replace(BIN_DIR / qemu_bin.name)
+
 
 if __name__ == '__main__':
     build()
