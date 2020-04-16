@@ -15,8 +15,9 @@ QEMU_PATH = qemu_path('x86_64')
 
 
 class RegexReader:
-    def __init__(self, fd):
+    def __init__(self, fd, *, balanced=None):
         self.fd = fd
+        self.balanced = balanced or []
         self._buffer = b''
 
     def unread(self, data):
@@ -28,8 +29,10 @@ class RegexReader:
                 re.search(regex, self._buffer)
                 for regex in regexs
             ]
-            if any(matches):
-                match = sorted([match for match in matches if match], key=lambda k: k.start())[0]
+            for match in sorted([match for match in matches if match], key=lambda k: k.start()):
+                if any(len(set(match.group(0).count(e) for e in balance)) != 1
+                       for balance in self.balanced):
+                    continue
                 self._buffer = self._buffer[match.end():]
                 return match
             self._buffer += os.read(self.fd, 4096)
@@ -113,7 +116,7 @@ class Tracer:
         popen, qemu_log_r = self.start()
         self.popen = popen
 
-        reader = RegexReader(qemu_log_r)
+        reader = RegexReader(qemu_log_r, balanced=[(b'(', b')')])
 
         try:
             execve_args = (json.dumps(self.target_args[0]),
@@ -128,7 +131,8 @@ class Tracer:
                 # ?P<args_blocked> handles the case where the syscall is blocked, which will not end in ' ='
                 # in this case, the line must end with a ')'
                 # line end must occur because otherwise potential race condition could occur in non-blocked syscall midway through logging it
-                # fortunately, this should be mitigated by a ',' if there are more args
+                # in general, this should be mitigated by a ',' if there are more args
+                # however, this may not be the case inside of structs, and therefore we need to check for balanced parentheses
                 syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)((\((?P<args>.*?)\)(?= =))|(\((?P<args_blocked>.*?)\)$))'
                 syscall_result_re = br' = (?P<result>.*)\n'
                 bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\] \n'
