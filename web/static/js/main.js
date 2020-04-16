@@ -5,7 +5,7 @@ class Map {
             .addTo(this.selector)
             .viewbox(150, -50, 500, 500)
             .panZoom({
-                'zoomMin': 0.5,
+                'zoomMin': 0.1,
                 'zoomMax': 10,
             });
 
@@ -373,6 +373,7 @@ class Node {
     }
 
     select(selected=true, pan=false, modal=false) {
+        const prevSelected = this.selected;
         this.selected = selected;
         if (selected) {
             if (this.map.selected && this.map.selected !== this)
@@ -399,7 +400,7 @@ class Node {
                     if (node.io !== undefined) {
                         const text = $('<pre>');
                         text.css('color', node.io.direction === 'read' ? 'gold' : 'black')
-                        text.text(node.io.data);
+                        text.text(node.content);
                         $('#ioTab').prepend(text);
                     }
                     node = node.parent;
@@ -416,7 +417,9 @@ class Node {
                 });
                 $('#syscallTab').empty();
                 $('#syscallTab').append(syscallGroup);
-                $('#infoModal').modal();
+                if (prevSelected || !this.editable) {
+                    $('#infoModal').modal();
+                }
             }
         } else {
             this.rect.removeClass('selected');
@@ -498,7 +501,7 @@ class Edge {
                     if (node.io !== undefined) {
                         const text = $('<pre>');
                         text.css('color', node.io.direction === 'read' ? 'gold' : 'black')
-                        text.text(node.io.data);
+                        text.text(node.content);
                         $('#ioTab').prepend(text);
                     }
                     node = node.parent;

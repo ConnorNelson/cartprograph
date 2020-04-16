@@ -102,7 +102,7 @@ def handle_trace_event(event):
             prev_edge_partition, prev_node_partition = result[-1]
             current_io = node_partition[0]['io'] if len(node_partition) == 1 and 'io' in node_partition[0] else None
             prev_io = prev_node_partition[-1]['io'] if 'io' in prev_node_partition[-1] else None
-            if (current_io and prev_io and
+            if (current_io and prev_io and not edge_partition and
                 current_io['channel'] == prev_io['channel'] and
                 current_io['direction'] == prev_io['direction'] and
                 current_io['data'] is not None):
