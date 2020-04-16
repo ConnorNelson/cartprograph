@@ -79,7 +79,7 @@ def handle_trace_event(event):
             interaction_index += len(node2['interaction'])
     interaction = interaction[interaction_index:]
 
-    def io_partitioned_interactions():
+    def io_partitions():
         current = []
         for e in interaction:
             if 'io' in e or e['syscall'] in ['execve', 'exit', 'exit_group']:
@@ -89,16 +89,34 @@ def handle_trace_event(event):
             else:
                 current.append(e)
 
-    partitions = iter(io_partitioned_interactions())
+    def grouped_partitions():
+        partitions = iter(io_partitions())
+        result = []
+        for edge_partition in partitions:
+            node_partition = next(partitions)
+            if not result:
+                result.append((edge_partition, node_partition))
+                continue
+            prev_edge_partition, prev_node_partition = result[-1]
+            current_io = node_partition[0]['io'] if len(node_partition) == 1 and 'io' in node_partition[0] else None
+            prev_io = prev_node_partition[-1]['io'] if 'io' in prev_node_partition[-1] else None
+            if (current_io and prev_io and
+                current_io['channel'] == prev_io['channel'] and
+                current_io['direction'] == prev_io['direction'] and
+                current_io['data'] is not None):
+                prev_node_partition.extend(node_partition)
+            else:
+                result.append((edge_partition, node_partition))
+        yield from result
 
-    _ = next(partitions)
-    tree.nodes()[node_id]['interaction'] = next(partitions)
+    partitions = iter(grouped_partitions())
+
+    _, tree.nodes()[node_id]['interaction'] = next(partitions)
     redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
     redis_client.publish('event.node', node_id)
 
     prev_node_id = node_id
-    for edge_partition in partitions:
-        node_partition = next(partitions)
+    for edge_partition, node_partition in partitions:
         node_id = next(new_id)
         tree.add_node(node_id, **{
             'id': node_id,

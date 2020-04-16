@@ -86,7 +86,7 @@ class Tracer:
             elif event == TracerEvent.EXEC_BLOCK and (filter_ is ... or addr in filter_):
                 func(addr)
 
-    def run(self):
+    def start(self):
         qemu_log_r, qemu_log_w = os.pipe()
         qemu_log_path = f'/proc/{os.getpid()}/fd/{qemu_log_w}'
 
@@ -102,6 +102,15 @@ class Tracer:
                                  stdin=subprocess.PIPE,
                                  stdout=subprocess.PIPE,
                                  stderr=subprocess.PIPE)
+
+        self.popen = popen
+        self.qemu_log_r = qemu_log_r
+        self.qemu_log_w = qemu_log_w
+
+        return popen, qemu_log_r
+
+    def run(self):
+        popen, qemu_log_r = self.start()
         self.popen = popen
 
         reader = RegexReader(qemu_log_r)
@@ -153,9 +162,12 @@ class Tracer:
                     self.dispatch_event(TracerEvent.SYSCALL_FINISH, syscall=syscall, args=args, result=result)
 
         finally:
-            popen.kill()
-            popen.stdin.close()
-            popen.stdout.close()
-            popen.stderr.close()
-            os.close(qemu_log_r)
-            os.close(qemu_log_w)
+            self.stop()
+
+    def stop(self):
+        self.popen.kill()
+        self.popen.stdin.close()
+        self.popen.stdout.close()
+        self.popen.stderr.close()
+        os.close(self.qemu_log_r)
+        os.close(self.qemu_log_w)

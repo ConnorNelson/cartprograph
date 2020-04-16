@@ -1,4 +1,10 @@
+import logging
+
 from .tracer import Tracer, TracerEvent, on_event
+
+
+l = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 class InteractionTracer(Tracer):
@@ -11,6 +17,17 @@ class InteractionTracer(Tracer):
     def current_interaction(self):
         if self.interaction_index < len(self.interaction):
             return self.interaction[self.interaction_index]
+
+    @property
+    def prev_interaction(self):
+        if 0 < self.interaction_index <= len(self.interaction):
+            return self.interaction[self.interaction_index - 1]
+
+    @property
+    def prev_interactions(self):
+        if 0 < self.interaction_index <= len(self.interaction):
+            for i in range(self.interaction_index - 1, 0-1, -1):
+                yield self.interaction[i]
 
     @property
     def stdin(self):
@@ -30,13 +47,10 @@ class InteractionTracer(Tracer):
 
     @on_event(TracerEvent.SYSCALL_START, '.*')
     def on_syscall_start(self, syscall, args):
+        l.debug('syscall: %s %s', syscall, args)
         if self.interaction_index < len(self.interaction):
             assert self.current_interaction['syscall'] == syscall
             assert self.current_interaction['args'] == args
-
-            if 'action' in self.current_interaction:
-                self.current_interaction['action'](self, syscall, args)
-
         else:
             self.interaction.append({
                 'syscall': syscall,
@@ -45,6 +59,7 @@ class InteractionTracer(Tracer):
 
     @on_event(TracerEvent.SYSCALL_FINISH, '.*')
     def on_syscall_finish(self, syscall, args, result):
+        l.debug('syscall: %s %s = %s', syscall, args, result)
         assert self.current_interaction['syscall'] == syscall
         assert self.current_interaction['args'] == args
         if 'result' in self.current_interaction:

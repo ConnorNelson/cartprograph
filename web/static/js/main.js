@@ -111,15 +111,16 @@ class Map {
 
             if (s.editable) {
                 if (e.key.length === 1)
-                    s.io.data += e.key;
+                    s.content += e.key;
                 switch (e.key) {
                 case 'Backspace':
-                    s.io.data = s.io.data.slice(0, -1);
+                    s.content = s.content.slice(0, -1);
                     break;
                 case 'Enter':
                     if (!e.ctrlKey) {
-                        s.io.data += '\n';
+                        s.content += '\n';
                     } else {
+                        s.data.interaction[0].io.data = s.content;
                         socket.emit('input', s.data);
                     }
                     break;
@@ -168,18 +169,22 @@ class Node {
     update(data) {
         this.data = data;
 
-        if (this.data.interaction.length !== 1) {
-            throw "Node interaction length should be 1";
+        if (!this.data.interaction) {
+            throw "Node must have interaction";
         }
-        this.interaction = this.data.interaction[0];
-        this.io = this.interaction.io;
-        if (this.io && this.io.data === null) {
-            this.io.data = '';
+        this.content = '';
+        this.io = this.data.interaction[0].io;
+        if (this.data.interaction.length == 1 && this.io && this.io.data === null) {
             this.editable = true;
         } else {
             this.editable = false;
+            this.data.interaction.forEach((e) => {
+                if (!e.io)
+                    return;
+                this.content += e.io.data;
+            });
         }
-        if (['execve', 'exit', 'exit_group'].includes(this.interaction.syscall)) {
+        if (['execve', 'exit', 'exit_group'].includes(this.data.interaction[0].syscall)) {
             this.shape = 'circle';
         }
 
@@ -237,7 +242,7 @@ class Node {
 
                 const strLength = 40;
                 const reStr = new RegExp('.{1,' + strLength + '}', 'g')
-                const lines = this_.io.data.split(/\r?\n/);
+                const lines = this_.content.split(/\r?\n/);
                 lines.forEach((line, i) => {
                     if (i > 0 && !lines[i-1])
                         add.tspan('').newLine();
@@ -547,8 +552,8 @@ $(() => {
                       null : map.nodes[node_data.parent_id];
                 new Node(map, parent, node_data, edge_data);
             }
-            i -= 500;
+            i -= 100;
         }, i);
-        i += 500;
+        i += 100;
     });
 });

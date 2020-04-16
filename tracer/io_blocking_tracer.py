@@ -1,5 +1,11 @@
+import logging
+
 from .tracer import TracerEvent, on_event
 from .interaction_tracer import InteractionTracer
+
+
+l = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
 class IO:
@@ -7,6 +13,7 @@ class IO:
         self.channel = channel
         self.direction = direction
         self.data = data
+        self.excess_data = b''
 
     def __eq__(self, other):
         return (type(self) is type(other) and
@@ -49,23 +56,50 @@ class IOBlockingTracer(InteractionTracer):
             else:
                 break
 
-    @property
-    def prev_interaction(self):
-        if 0 < self.interaction_index <= len(self.interaction):
-            return self.interaction[self.interaction_index - 1]
+    @on_event(TracerEvent.SYSCALL_START, 'read')
+    def on_read_excess(self, syscall, args):
+        if 'io' not in self.current_interaction:
+            current = self.current_interaction
+            prev = self.prev_interaction
+            if not prev:
+                return
+            prev_io = prev.get('io')
+            if not prev_io or not prev_io.excess_data:
+                return
+            if current['syscall'] != prev['syscall']:
+                return
+            if current['args'] != prev['args']:
+                return
+            l.debug('Using previous excess data: %s', prev_io.excess_data)
+            io = IO(prev_io.channel, prev_io.direction, prev_io.excess_data)
+            self.current_interaction['io'] = io
+
+        if 'io' in self.current_interaction:
+            count = int(args[2])
+            io = self.current_interaction['io']
+            io.excess_data = io.data[count:]
+            io.data = io.data[:count]
+            if io.excess_data:
+                l.debug('Separating excess data: %s', io.excess_data)
 
     @on_event(TracerEvent.SYSCALL_START, 'read')
     def on_read_stdin(self, syscall, args):
         fd = int(args[0])
-        if 'action' not in self.current_interaction and fd == 0:
+        if fd != 0:
+            return
+        if 'io' not in self.current_interaction:
             self.current_interaction['io'] = IO('stdin', 'read', None)
             raise Block(self, syscall, args)
+        else:
+            self.stdin.write(io.data)
+            self.stdin.flush()
 
     @on_event(TracerEvent.SYSCALL_FINISH, 'write')
     def on_write_stdout(self, syscall, args, result):
         fd = int(args[0])
         if fd == 1:
             output = self.stdout.read(result)
+            l.debug('stdout: %s', output)
             assert len(output) == result
             io = IO('stdout', 'write', output)
             if 'io' in self.prev_interaction:
@@ -77,7 +111,8 @@ class IOBlockingTracer(InteractionTracer):
     def on_write_stderr(self, syscall, args, result):
         fd = int(args[0])
         if fd == 2:
-            output = self.stdout.read(result)
+            output = self.stderr.read(result)
+            l.debug('stderr: %s', output)
             assert len(output) == result
             io = IO('stderr', 'write', output)
             if 'io' in self.prev_interaction:

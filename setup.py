@@ -40,6 +40,7 @@ setup(
         'flask_socketio',
         'eventlet',
         'redis',
+        'archr',
     ],
     cmdclass={
         'build': build,
