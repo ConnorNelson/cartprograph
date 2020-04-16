@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import json
 import itertools
 import logging
@@ -9,7 +10,7 @@ import networkx as nx
 
 
 l = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 
 redis_client = redis.Redis(host='localhost', port=6379)
 tree = nx.DiGraph()
@@ -65,6 +66,7 @@ def handle_trace_event(event):
     interaction = trace['interaction']
 
     l.info('New Trace: %d', node_id)
+    l.debug('trace: %s', trace)
 
     interaction_index = 0
     root = tree.nodes()[0]

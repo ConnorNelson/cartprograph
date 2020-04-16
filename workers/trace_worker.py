@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import re
 import pathlib
 import json
@@ -13,7 +14,7 @@ from tracer import IOBlockingTracer, IO, Block, on_event, TracerEvent
 
 
 l = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 
 
 class IOBlockingArchrTracer(tracer.IOBlockingTracer):
@@ -88,7 +89,6 @@ class IOBlockingArchrTracer(tracer.IOBlockingTracer):
             self.current_interaction['io'] = IO(f'tcp:{port}', 'read', None)
             raise Block(self, syscall, args)
         else:
-            count = int(args[2])
             io = self.current_interaction['io']
             channel = self.flight.get_channel(channel_name)
             if io.data:

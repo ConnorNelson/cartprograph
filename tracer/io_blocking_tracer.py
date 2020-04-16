@@ -1,3 +1,4 @@
+import os
 import logging
 
 from .tracer import TracerEvent, on_event
@@ -5,7 +6,7 @@ from .interaction_tracer import InteractionTracer
 
 
 l = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 
 
 class IO:

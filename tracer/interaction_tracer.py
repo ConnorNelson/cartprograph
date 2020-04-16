@@ -1,10 +1,11 @@
+import os
 import logging
 
 from .tracer import Tracer, TracerEvent, on_event
 
 
 l = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 
 
 class InteractionTracer(Tracer):

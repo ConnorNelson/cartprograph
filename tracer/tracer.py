@@ -9,7 +9,7 @@ from .qemu import qemu_path
 
 
 l = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 
 QEMU_PATH = qemu_path('x86_64')
 
