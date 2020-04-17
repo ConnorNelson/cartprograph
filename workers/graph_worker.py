@@ -37,8 +37,10 @@ def handle_input_event(event):
     redis_client.publish('event.node', node_id)
 
     interaction = []
+    bb_trace = []
     root = tree.nodes()[0]
     interaction.extend(root['interaction'])
+    bb_trace.extend(root['bb_trace'])
     path = nx.shortest_path(tree, 0, node['id'])
     for n1, n2 in zip(path, path[1:]):
         node1 = tree.nodes()[n1]
@@ -46,29 +48,28 @@ def handle_input_event(event):
         edge = tree.edges()[n1, n2]
         interaction.extend(edge['interaction'])
         interaction.extend(node2['interaction'])
+        bb_trace.extend(edge['bb_trace'])
+        bb_trace.extend(node2['bb_trace'])
 
     trace = json.dumps({
         'node_id': node_id,
         'interaction': interaction,
+        'bb_trace': bb_trace,
     })
     redis_client.rpush('work.trace', trace)
 
 
 def handle_trace_event(event):
-    channel = event['channel'].decode()
-    if channel not in ['event.trace.blocked', 'event.trace.finished']:
-        return
-
-    blocked = channel == 'event.trace.blocked'
-
     trace = json.loads(event['data'])
     node_id = trace['node_id']
     interaction = trace['interaction']
+    bb_trace = trace['bb_trace']
 
     l.info('New Trace: %d', node_id)
     l.debug('trace: %s', trace)
 
     interaction_index = 0
+    bb_trace_index = 0
     root = tree.nodes()[0]
     interaction_index += len(root['interaction'])
     path = nx.shortest_path(tree, 0, node_id)
@@ -77,8 +78,10 @@ def handle_trace_event(event):
         node2 = tree.nodes()[n2]
         edge = tree.edges()[n1, n2]
         interaction_index += len(edge['interaction'])
+        bb_trace_index += len(edge['bb_trace'])
         if n2 != node_id:
             interaction_index += len(node2['interaction'])
+            bb_trace_index += len(node2['bb_trace'])
     interaction = interaction[interaction_index:]
 
     def io_partitions():
@@ -113,23 +116,34 @@ def handle_trace_event(event):
 
     partitions = iter(grouped_partitions())
 
-    _, tree.nodes()[node_id]['interaction'] = next(partitions)
+    _, node_partition = next(partitions)
+    node_bb_trace_index = node_partition[-1]['bb_trace_index']
+    tree.nodes()[node_id]['interaction'] = node_partition
+    tree.nodes()[node_id]['bb_trace'] = bb_trace[bb_trace_index:node_bb_trace_index]
+    bb_trace_index = node_bb_trace_index
     redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
     redis_client.publish('event.node', node_id)
 
     prev_node_id = node_id
     for edge_partition, node_partition in partitions:
         node_id = next(new_id)
-        tree.add_node(node_id, **{
-            'id': node_id,
-            'parent_id': prev_node_id,
-            'interaction': node_partition,
-        })
+        edge_bb_trace_index = (edge_partition[-1]['bb_trace_index']
+                               if edge_partition else bb_trace_index)
         tree.add_edge(prev_node_id, node_id, **{
             'start_node_id': prev_node_id,
             'end_node_id': node_id,
             'interaction': edge_partition,
+            'bb_trace': bb_trace[bb_trace_index:edge_bb_trace_index]
         })
+        bb_trace_index = edge_bb_trace_index
+        node_bb_trace_index = node_partition[-1]['bb_trace_index']
+        tree.add_node(node_id, **{
+            'id': node_id,
+            'parent_id': prev_node_id,
+            'interaction': node_partition,
+            'bb_trace': bb_trace[bb_trace_index:node_bb_trace_index]
+        })
+        bb_trace_index = node_bb_trace_index
         redis_client.set(f'edge.{prev_node_id}.{node_id}',
               json.dumps(tree.edges()[prev_node_id, node_id]))
         redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
@@ -137,11 +151,31 @@ def handle_trace_event(event):
         prev_node_id = node_id
 
 
+def handle_trace_desync_event(event):
+    trace = json.loads(event['data'])
+    node_id = trace['node_id']
+
+    tree.nodes()[node_id]['interaction'] = [{
+        'syscall': 'error',
+        'args': [],
+        'io': {
+            'channel': 'error',
+            'direction': 'desync',
+            'data': '',
+        }
+    }]
+    tree.nodes()[node_id]['bb_trace'] = []
+    redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
+    redis_client.publish('event.node', node_id)
+
+
 def main():
     p = redis_client.pubsub(ignore_subscribe_messages=True)
     p.psubscribe(**{
         'event.input': handle_input_event,
-        'event.trace.*': handle_trace_event,
+        'event.trace.blocked': handle_trace_event,
+        'event.trace.finished': handle_trace_event,
+        'event.trace.desync': handle_trace_desync_event,
     })
 
     nodes = [json.loads(redis_client.get(key)) for key in redis_client.keys('node.*')]
@@ -157,12 +191,14 @@ def main():
             'id': node_id,
             'parent_id': None,
             'interaction': [],
+            'bb_trace': [],
         })
         redis_client.set(f'node.{node_id}', json.dumps(tree.nodes()[node_id]))
 
         trace = json.dumps({
             'node_id': node_id,
             'interaction': [],
+            'bb_trace': [],
         })
         redis_client.rpush('work.trace', trace)
 

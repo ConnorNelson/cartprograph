@@ -318,6 +318,16 @@ class Node {
                     this.rect.addClass('input-pending');
                 }
                 break;
+            case 'desync':
+                this.rect.removeClass('output');
+                this.rect.removeClass('input');
+                this.rect.removeClass('input-pending');
+                this.rect.addClass('error');
+                break;
+            }
+
+            if (this.io.channel === 'error') {
+                this.rect.attr('#877');
             }
 
             this.text.text(text);
@@ -417,6 +427,19 @@ class Node {
                 });
                 $('#syscallTab').empty();
                 $('#syscallTab').append(syscallGroup);
+                const bbGroup = $('<ul>').addClass('list-group');
+                this.data.bb_trace.forEach((e) => {
+                    const item = $('<li>').addClass('list-group-item');
+                    const code = $('<code>');
+                    code.text('0x' + e.toString(16));
+                    item.append(code);
+                    bbGroup.append(item);
+                });
+                const bbCount = $('<p>');
+                bbCount.text(this.data.bb_trace.length + ' Basic Blocks');
+                $('#bbTab').empty();
+                $('#bbTab').append(bbCount);
+                $('#bbTab').append(bbGroup);
                 if (prevSelected || !this.editable) {
                     $('#infoModal').modal();
                 }
@@ -518,6 +541,19 @@ class Edge {
                 });
                 $('#syscallTab').empty();
                 $('#syscallTab').append(syscallGroup);
+                const bbGroup = $('<ul>').addClass('list-group');
+                this.data.bb_trace.forEach((e) => {
+                    const item = $('<li>').addClass('list-group-item');
+                    const code = $('<code>');
+                    code.text('0x' + e.toString(16));
+                    item.append(code);
+                    bbGroup.append(item);
+                });
+                const bbCount = $('<p>');
+                bbCount.text(this.data.bb_trace.length + ' Basic Blocks');
+                $('#bbTab').empty();
+                $('#bbTab').append(bbCount);
+                $('#bbTab').append(bbGroup);
                 $('#infoModal').modal();
             }
         } else {

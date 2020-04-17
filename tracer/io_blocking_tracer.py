@@ -35,8 +35,8 @@ class Block(Exception):
 
 
 class IOBlockingTracer(InteractionTracer):
-    def __init__(self, target_args, handle_block=None, *, interaction=None):
-        super().__init__(target_args, interaction=interaction)
+    def __init__(self, target_args, handle_block=None, *, interaction=None, bb_trace=None):
+        super().__init__(target_args, interaction=interaction, bb_trace=bb_trace)
         self.handle_block = handle_block
 
     def run(self):

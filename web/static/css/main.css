@@ -35,6 +35,10 @@ body {
     fill: #887;
 }
 
+.node.error {
+    fill: #877;
+}
+
 tspan {
     fill: #ddd;
     font-size: 8;

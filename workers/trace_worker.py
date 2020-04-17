@@ -18,8 +18,10 @@ logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 
 
 class IOBlockingArchrTracer(tracer.IOBlockingTracer):
-    def __init__(self, target, *, interaction):
-        super().__init__(target.target_args, interaction=interaction)
+    def __init__(self, target, interaction, bb_trace):
+        super().__init__(target.target_args,
+                         interaction=interaction,
+                         bb_trace=bb_trace)
         self.target = target
         self.fd_channels = {}
 
@@ -32,7 +34,7 @@ class IOBlockingArchrTracer(tracer.IOBlockingTracer):
         self.target.run_command(['mkfifo', str(log_path)]).wait()
         log_popen = self.target.run_command(['cat', str(log_path)])
 
-        qemu_args = [str(qemu_path), '-d', 'strace',
+        qemu_args = [str(qemu_path), '-d', 'strace,exec',
                      '-D', str(log_path),
                      '--', *self.target.target_args]
 
@@ -148,23 +150,31 @@ def main():
         trace = json.loads(trace)
 
         interaction = deserialize_interaction(trace['interaction'])
+        bb_trace = trace['bb_trace']
 
         with archr.targets.DockerImageTarget('irving').build().start() as target:
-            machine = IOBlockingArchrTracer(target, interaction=interaction)
+            machine = IOBlockingArchrTracer(target,
+                                            interaction=interaction,
+                                            bb_trace=bb_trace)
+
+            def publish_trace(channel):
+                nonlocal trace
+                trace['interaction'] = serialize_interaction(machine.interaction)
+                trace['bb_trace'] = machine.bb_trace
+                trace = json.dumps(trace)
+                r.publish(channel, trace)
 
             try:
                 machine.run()
 
             except Block:
-                trace['interaction'] = serialize_interaction(machine.interaction)
-                trace = json.dumps(trace)
-                r.publish('event.trace.blocked', trace)
+                publish_trace('event.trace.blocked')
+
+            except Exception:
+                publish_trace('event.trace.desync')
 
             else:
-                trace['interaction'] = serialize_interaction(machine.interaction)
-                trace = json.dumps(trace)
-                r.publish('event.trace.finished', trace)
-
+                publish_trace('event.trace.finished')
 
 if __name__ == '__main__':
     main()
