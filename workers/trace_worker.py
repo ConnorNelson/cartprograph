@@ -47,7 +47,9 @@ class IOBlockingArchrTracer(tracer.IOBlockingTracer):
 
     def stop(self):
         self.flight.process.kill()
+        self.flight.process.wait()
         self.log_popen.kill()
+        self.log_popen.wait()
 
     @on_event(TracerEvent.SYSCALL_START, 'accept')
     def on_accept(self, syscall, args):
