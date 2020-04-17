@@ -435,11 +435,31 @@ class Node {
                     item.append(code);
                     bbGroup.append(item);
                 });
-                const bbCount = $('<p>');
-                bbCount.text(this.data.bb_trace.length + ' Basic Blocks');
-                $('#bbTab').empty();
-                $('#bbTab').append(bbCount);
-                $('#bbTab').append(bbGroup);
+                const bbCount = $('<span>')
+                      .text(this.data.bb_trace.length + ' Basic Blocks');
+                const bbDownload = $('<button>')
+                      .css('float', 'right')
+                      .append($('<span>').text('Download'))
+                      .click(() => {
+                          var tracer = this;
+                          var trace = '';
+                          while (tracer) {
+                              var currentTrace = '';
+                              tracer.data.bb_trace.forEach((e) => {
+                                  currentTrace += '0x' + e.toString(16) + '\n';
+                              });
+                              trace = currentTrace + trace;
+                              tracer = tracer.parentEdge || tracer.node1;
+                          }
+                          download('trace.csv', trace);
+                      });
+                $('#bbTab')
+                    .empty()
+                    .append(bbCount)
+                    .append(bbDownload)
+                    .append($('<br>'))
+                    .append($('<br>'))
+                    .append(bbGroup);
                 if (prevSelected || !this.editable) {
                     $('#infoModal').modal();
                 }
@@ -549,11 +569,31 @@ class Edge {
                     item.append(code);
                     bbGroup.append(item);
                 });
-                const bbCount = $('<p>');
-                bbCount.text(this.data.bb_trace.length + ' Basic Blocks');
-                $('#bbTab').empty();
-                $('#bbTab').append(bbCount);
-                $('#bbTab').append(bbGroup);
+                const bbCount = $('<span>')
+                      .text(this.data.bb_trace.length + ' Basic Blocks');
+                const bbDownload = $('<button>')
+                      .css('float', 'right')
+                      .append($('<span>').text('Download'))
+                      .click(() => {
+                          var tracer = this;
+                          var trace = '';
+                          while (tracer) {
+                              var currentTrace = '';
+                              tracer.data.bb_trace.forEach((e) => {
+                                  currentTrace += '0x' + e.toString(16) + '\n';
+                              });
+                              trace = currentTrace + trace;
+                              tracer = tracer.parentEdge || tracer.node1;
+                          }
+                          download('trace.csv', trace);
+                      });
+                $('#bbTab')
+                    .empty()
+                    .append(bbCount)
+                    .append(bbDownload)
+                    .append($('<br>'))
+                    .append($('<br>'))
+                    .append(bbGroup);
                 $('#infoModal').modal();
             }
         } else {
@@ -562,6 +602,20 @@ class Edge {
     }
 }
 
+function download(filename, data) {
+    var blob = new Blob([data], {type: 'text/csv'});
+    if(window.navigator.msSaveOrOpenBlob) {
+        window.navigator.msSaveBlob(blob, filename);
+    }
+    else{
+        var elem = window.document.createElement('a');
+        elem.href = window.URL.createObjectURL(blob);
+        elem.download = filename;
+        document.body.appendChild(elem);
+        elem.click();
+        document.body.removeChild(elem);
+    }
+}
 
 var map = null;
 var socket = null;
