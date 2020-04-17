@@ -135,7 +135,7 @@ class Tracer:
                 # however, this may not be the case inside of structs, and therefore we need to check for balanced parentheses
                 syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)((\((?P<args>.*?)\)(?= =))|(\((?P<args_blocked>.*?)\)$))'
                 syscall_result_re = br' = (?P<result>.*)\n'
-                bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\] \n'
+                bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\]'
 
                 match = reader.read_regex(syscall_re, bb_addr_re)
 
