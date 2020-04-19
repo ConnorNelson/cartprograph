@@ -145,16 +145,21 @@ def deserialize_interaction(interaction):
 
 
 def main():
-    r = redis.Redis(host='localhost', port=6379)
+    redis_client = redis.Redis(host='localhost', port=6379)
 
     while True:
-        _, trace = r.blpop('work.trace')
+        _, trace = redis_client.blpop('work.trace')
         trace = json.loads(trace)
 
+        target_id = trace['target']
         interaction = deserialize_interaction(trace['interaction'])
         bb_trace = trace['bb_trace']
 
-        with archr.targets.DockerImageTarget('irving').build().start() as target:
+        image_name = redis_client.get(f'{target_id}.config.image_name').decode()
+
+        l.info('Tracing: %s', image_name)
+
+        with archr.targets.DockerImageTarget(image_name).build().start() as target:
             machine = IOBlockingArchrTracer(target,
                                             interaction=interaction,
                                             bb_trace=bb_trace)
@@ -164,19 +169,19 @@ def main():
                 trace['interaction'] = serialize_interaction(machine.interaction)
                 trace['bb_trace'] = machine.bb_trace
                 trace = json.dumps(trace)
-                r.publish(channel, trace)
+                redis_client.publish(channel, trace)
 
             try:
                 machine.run()
 
             except Block:
-                publish_trace('event.trace.blocked')
+                publish_trace(f'{target_id}.event.trace.blocked')
 
             except Exception:
-                publish_trace('event.trace.desync')
+                publish_trace(f'{target_id}.event.trace.desync')
 
             else:
-                publish_trace('event.trace.finished')
+                publish_trace(f'{target_id}.event.trace.finished')
 
 if __name__ == '__main__':
     main()
