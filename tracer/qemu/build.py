@@ -13,15 +13,15 @@ BIN_DIR = BASE_DIR / 'bin'
 QEMU_REPO = "https://github.com/qemu/qemu.git"
 QEMU_BRANCH = "v5.0.0-rc1"
 QEMU_TARGETS = [
-    'i386-linux-user',
+    # 'i386-linux-user',
     'x86_64-linux-user',
-    'mips-linux-user',
-    'mips64-linux-user',
-    'mipsel-linux-user',
-    'ppc-linux-user',
-    'ppc64-linux-user',
-    'arm-linux-user',
-    'aarch64-linux-user',
+    # 'mips-linux-user',
+    # 'mips64-linux-user',
+    # 'mipsel-linux-user',
+    # 'ppc-linux-user',
+    # 'ppc64-linux-user',
+    # 'arm-linux-user',
+    # 'aarch64-linux-user',
 ]
 
 
