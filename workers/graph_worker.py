@@ -239,7 +239,7 @@ def handle_trace_error_event(event):
         }
     }]
     tree.nodes()[node_id]['bb_trace'] = []
-    tree.nodes()[node_id]['annotation'] = ''
+    tree.nodes()[node_id]['annotation'] = trace.get('annotation', '')
     redis_client.set(f'{target}.node.{node_id}', json.dumps(tree.nodes()[node_id]))
     redis_client.publish(f'{target}.event.node', node_id)
 
@@ -254,6 +254,7 @@ def main():
         '*.event.trace.finished': handle_trace_event,
         '*.event.trace.desync': handle_trace_error_event,
         '*.event.trace.timeout': handle_trace_error_event,
+        '*.event.trace.error': handle_trace_error_event,
     })
 
     nodes = [(key, json.loads(redis_client.get(key))) for key in redis_client.keys('*.node.*')]

@@ -2,7 +2,7 @@ import os
 import logging
 
 from .tracer import TracerEvent, on_event
-from .interaction_tracer import InteractionTracer
+from .interaction_tracer import InteractionTracer, Desync
 
 
 l = logging.getLogger(__name__)
@@ -101,10 +101,12 @@ class IOBlockingTracer(InteractionTracer):
         if fd == 1:
             output = self.stdout.read(result)
             l.debug('stdout: %s', output)
-            assert len(output) == result
+            if result != len(output):
+                raise Desync('stdout length', result, len(output))
             io = IO('stdout', 'write', output)
             if 'io' in self.prev_interaction:
-                assert self.prev_interaction['io'] == io
+                if self.prev_interaction['io'] != io:
+                    raise Desync('stdout io', self.prev_interaction['io'], io)
             else:
                 self.prev_interaction['io'] = io
 
@@ -114,9 +116,11 @@ class IOBlockingTracer(InteractionTracer):
         if fd == 2:
             output = self.stderr.read(result)
             l.debug('stderr: %s', output)
-            assert len(output) == result
+            if result != len(output):
+                raise Desync('stderr length', result, len(output))
             io = IO('stderr', 'write', output)
             if 'io' in self.prev_interaction:
-                assert self.prev_interaction['io'] == io
+                if self.prev_interaction['io'] != io:
+                    raise Desync('stderr io', self.prev_interaction['io'], io)
             else:
                 self.prev_interaction['io'] = io

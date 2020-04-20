@@ -3,6 +3,7 @@
 import os
 import re
 import signal
+import traceback
 import pathlib
 import json
 import contextlib
@@ -12,7 +13,7 @@ import redis
 import archr
 
 import tracer.qemu
-from tracer import IOBlockingTracer, IO, Block, on_event, TracerEvent
+from tracer import IOBlockingTracer, IO, Block, Desync, on_event, TracerEvent
 
 
 l = logging.getLogger(__name__)
@@ -135,7 +136,8 @@ class IOBlockingArchrTracer(tracer.IOBlockingTracer):
             assert len(output) == result
             io = IO(f'tcp:{port}', 'write', output)
             if 'io' in self.prev_interaction:
-                assert self.prev_interaction['io'] == io
+                if self.prev_interaction['io'] != io:
+                    raise Desync('socket write', self.prev_interaction['io'], io)
             else:
                 self.prev_interaction['io'] = io
 
@@ -200,11 +202,16 @@ def main():
             except Block:
                 publish_trace(f'{target_id}.event.trace.blocked')
 
+            except Desync as e:
+                trace['annotation'] = traceback.format_exc()
+                publish_trace(f'{target_id}.event.trace.desync')
+
             except TimeoutError:
                 publish_trace(f'{target_id}.event.trace.timeout')
 
-            except Exception:
-                publish_trace(f'{target_id}.event.trace.desync')
+            except Exception as e:
+                trace['annotation'] = traceback.format_exc()
+                publish_trace(f'{target_id}.event.trace.error')
 
             else:
                 publish_trace(f'{target_id}.event.trace.finished')
