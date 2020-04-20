@@ -55,7 +55,7 @@ class IOBlockingArchrTracer(tracer.IOBlockingTracer):
         self.target.run_command(['mkfifo', str(log_path)]).wait()
         log_popen = self.target.run_command(['cat', str(log_path)])
 
-        qemu_args = [str(qemu_path), '-d', 'strace,exec',
+        qemu_args = [str(qemu_path), '-d', 'strace,exec,nochain',
                      '-D', str(log_path),
                      '--', *self.target.target_args]
 

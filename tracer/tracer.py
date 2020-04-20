@@ -98,6 +98,7 @@ class Tracer:
             log_options.append('strace')
         if self.EXEC_BLOCK_ENABLED:
             log_options.append('exec')
+            log_options.append('nochain')
 
         popen = subprocess.Popen([QEMU_PATH, '-d', ','.join(log_options),
                                   '-D', qemu_log_path,
