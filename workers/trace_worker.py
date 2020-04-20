@@ -141,6 +141,18 @@ class IOBlockingArchrTracer(tracer.IOBlockingTracer):
             else:
                 self.prev_interaction['io'] = io
 
+    @on_event(TracerEvent.SYSCALL_FINISH, 'close')
+    def on_close(self, syscall, args, result):
+        fd = int(args[0])
+        if fd in self.fd_channels:
+            del self.fd_channels[fd]
+
+    @on_event(TracerEvent.SYSCALL_FINISH, 'dup*')
+    def on_dup(self, syscall, args, result):
+        fd = int(args[0])
+        if fd in self.fd_channels:
+            self.fd_channels[result] = self.fd_channels[fd]
+
 
 def serialize_interaction(interaction):
     data = [{k: v for k, v in e.items()} for e in interaction]
