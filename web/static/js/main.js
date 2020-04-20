@@ -437,6 +437,13 @@ class Node {
                 });
                 const bbCount = $('<span>')
                       .text(this.data.bb_trace.length + ' Basic Blocks');
+                const otherBBAddrs = new Set([].concat.apply([], Object.values(this.map.nodes).map((e) => {
+                    return (e === this ? [] : e.data.bb_trace).concat(
+                        e.parentEdge && e.parentEdge !== this ? e.parentEdge.data.bb_trace : [])
+                })));
+                const uniqueBBAddrs = new Set([...this.data.bb_trace].filter((e) => !otherBBAddrs.has(e)));
+                const bbUniqueCount = $('<span>')
+                      .text(uniqueBBAddrs.size + ' Unique Basic Blocks');
                 const bbDownload = $('<button>')
                       .css('float', 'right')
                       .append($('<span>').text('Download'))
@@ -456,6 +463,8 @@ class Node {
                 $('#bbTab')
                     .empty()
                     .append(bbCount)
+                    .append($('<br>'))
+                    .append(bbUniqueCount)
                     .append(bbDownload)
                     .append($('<br>'))
                     .append($('<br>'))
@@ -597,6 +606,13 @@ class Edge {
                 });
                 const bbCount = $('<span>')
                       .text(this.data.bb_trace.length + ' Basic Blocks');
+                const otherBBAddrs = new Set([].concat.apply([], Object.values(this.map.nodes).map((e) => {
+                    return (e === this ? [] : e.data.bb_trace).concat(
+                        e.parentEdge && e.parentEdge !== this ? e.parentEdge.data.bb_trace : [])
+                })));
+                const uniqueBBAddrs = new Set([...this.data.bb_trace].filter((e) => !otherBBAddrs.has(e)));
+                const bbUniqueCount = $('<span>')
+                      .text(uniqueBBAddrs.size + ' Unique Basic Blocks');
                 const bbDownload = $('<button>')
                       .css('float', 'right')
                       .append($('<span>').text('Download'))
@@ -616,6 +632,8 @@ class Edge {
                 $('#bbTab')
                     .empty()
                     .append(bbCount)
+                    .append($('<br>'))
+                    .append(bbUniqueCount)
                     .append(bbDownload)
                     .append($('<br>'))
                     .append($('<br>'))
