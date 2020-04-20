@@ -218,21 +218,23 @@ def handle_trace_event(event):
         prev_node_id = node_id
 
 
-def handle_trace_desync_event(event):
+def handle_trace_error_event(event):
     target = event['channel'].decode().split('.')[0]
     tree = trees[target]
+
+    error_type = event['channel'].decode().split('.')[3]
 
     trace = json.loads(event['data'])
     node_id = trace['node_id']
 
-    l.info('Trace Desync: %d', node_id)
+    l.info('Trace Error (%s): %d', error_type, node_id)
 
     tree.nodes()[node_id]['interaction'] = [{
         'syscall': 'error',
         'args': [],
         'io': {
             'channel': 'error',
-            'direction': 'desync',
+            'direction': error_type,
             'data': '',
         }
     }]
@@ -250,7 +252,8 @@ def main():
         '*.event.annotate': handle_annotate_event,
         '*.event.trace.blocked': handle_trace_event,
         '*.event.trace.finished': handle_trace_event,
-        '*.event.trace.desync': handle_trace_desync_event,
+        '*.event.trace.desync': handle_trace_error_event,
+        '*.event.trace.timeout': handle_trace_error_event,
     })
 
     nodes = [(key, json.loads(redis_client.get(key))) for key in redis_client.keys('*.node.*')]

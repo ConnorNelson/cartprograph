@@ -2,8 +2,10 @@
 
 import os
 import re
+import signal
 import pathlib
 import json
+import contextlib
 import logging
 
 import redis
@@ -15,6 +17,24 @@ from tracer import IOBlockingTracer, IO, Block, on_event, TracerEvent
 
 l = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
+
+
+class timeout(contextlib.ContextDecorator):
+    def __init__(self, seconds, suppress_timeout_errors=False):
+        self.seconds = int(seconds)
+        self.suppress = bool(suppress_timeout_errors)
+
+    def _timeout_handler(self, signum, frame):
+        raise TimeoutError()
+
+    def __enter__(self):
+        signal.signal(signal.SIGALRM, self._timeout_handler)
+        signal.alarm(self.seconds)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        signal.alarm(0)
+        if self.suppress and exc_type is TimeoutError:
+            return True
 
 
 class IOBlockingArchrTracer(tracer.IOBlockingTracer):
@@ -174,16 +194,21 @@ def main():
                 redis_client.publish(channel, trace)
 
             try:
-                machine.run()
+                with timeout(30):
+                    machine.run()
 
             except Block:
                 publish_trace(f'{target_id}.event.trace.blocked')
+
+            except TimeoutError:
+                publish_trace(f'{target_id}.event.trace.timeout')
 
             except Exception:
                 publish_trace(f'{target_id}.event.trace.desync')
 
             else:
                 publish_trace(f'{target_id}.event.trace.finished')
+
 
 if __name__ == '__main__':
     main()
