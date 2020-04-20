@@ -1,3 +1,8 @@
+@font-face {
+  font-family: 'Source Code Pro';
+  src: url('/static/font/SourceCodePro-Regular.ttf');
+}
+
 body {
     margin: 0;
 }
@@ -66,14 +71,6 @@ tspan {
 
 .hidden {
     visibility: hidden;
-}
-
-.modal {
-    opacity: 0.75;
-}
-
-.modal-backdrop.show {
-    opacity: 0;
 }
 
 #ioTab {

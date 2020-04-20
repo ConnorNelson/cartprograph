@@ -117,11 +117,14 @@ class Map {
                     s.content = s.content.slice(0, -1);
                     break;
                 case 'Enter':
-                    if (!e.ctrlKey) {
-                        s.content += '\n';
-                    } else {
+                    if (!e.ctrlKey && !e.shiftKey) {
+                        s.data.interaction[0].io.data = s.content + '\n';
+                        socket.emit('input', s.data);
+                    } else if (e.ctrlKey && !e.shiftKey) {
                         s.data.interaction[0].io.data = s.content;
                         socket.emit('input', s.data);
+                    } else if (!e.ctrlKey && e.shiftKey) {
+                        s.content += '\n';
                     }
                     break;
                 }
@@ -364,6 +367,10 @@ class Node {
             'translateY': this.y,
         });
 
+        if (this.selected) {
+            this.select();
+        }
+
         const curBB = this.groupHidden.bbox();
         var updated = false ||
             (curBB.x !== prevBB.x) ||
@@ -468,7 +475,9 @@ class Node {
             this.rect.removeClass('selected');
             this.map.selected = null;
         }
-        this.draw(true, false);
+        if (prevSelected !== this.selected) {
+            this.draw(true, false);
+        }
     }
 }
 
@@ -515,9 +524,14 @@ class Edge {
         this.node2.group.front();
         (animate ? this.polyline.animate({'when': 'now'}) : this.polyline)
             .plot(points);
+
+        if (this.selected) {
+            this.select();
+        }
     }
 
     select(selected=true, pan=false, modal=false) {
+        const prevSelected = this.selected;
         this.selected = selected;
         if (selected) {
             if (this.map.selected)
@@ -598,6 +612,9 @@ class Edge {
             }
         } else {
             this.polyline.removeClass('selected');
+        }
+        if (prevSelected !== this.selected) {
+            this.draw(true, false);
         }
     }
 }
