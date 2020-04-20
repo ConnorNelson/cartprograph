@@ -33,6 +33,7 @@ def handle_create_target(event):
         'parent_id': None,
         'interaction': [],
         'bb_trace': [],
+        'annotation': '',
     })
     redis_client.set(f'{target}.node.{node_id}', json.dumps(tree.nodes()[node_id]))
 
@@ -89,6 +90,35 @@ def handle_input_event(event):
         'bb_trace': bb_trace,
     })
     redis_client.rpush('work.trace', trace)
+
+
+def handle_annotate_event(event):
+    target = event['channel'].decode().split('.')[0]
+    tree = trees[target]
+
+    data = json.loads(event['data'])
+
+    if 'id' in data:
+        node = data
+        node_id = node['id']
+
+        l.info('Annotate: %d', node_id)
+
+        tree.add_node(node_id, **node)
+        redis_client.set(f'{target}.node.{node_id}', json.dumps(tree.nodes()[node_id]))
+        redis_client.publish(f'{target}.event.node', node_id)
+
+    else:
+        edge = data
+        node_id = edge['end_node_id']
+        prev_node_id = edge['start_node_id']
+
+        l.info('Annotate: %d -> %d', prev_node_id, node_id)
+
+        tree.add_edge(prev_node_id, node_id, **edge)
+        redis_client.set(f'{target}.edge.{prev_node_id}.{node_id}',
+                         json.dumps(tree.edges()[prev_node_id, node_id]))
+        redis_client.publish(f'{target}.event.node', node_id)
 
 
 def handle_trace_event(event):
@@ -168,7 +198,8 @@ def handle_trace_event(event):
             'start_node_id': prev_node_id,
             'end_node_id': node_id,
             'interaction': edge_partition,
-            'bb_trace': bb_trace[bb_trace_index:edge_bb_trace_index]
+            'bb_trace': bb_trace[bb_trace_index:edge_bb_trace_index],
+            'annotation': '',
         })
         bb_trace_index = edge_bb_trace_index
         node_bb_trace_index = node_partition[-1]['bb_trace_index']
@@ -176,7 +207,8 @@ def handle_trace_event(event):
             'id': node_id,
             'parent_id': prev_node_id,
             'interaction': node_partition,
-            'bb_trace': bb_trace[bb_trace_index:node_bb_trace_index]
+            'bb_trace': bb_trace[bb_trace_index:node_bb_trace_index],
+            'annotation': '',
         })
         bb_trace_index = node_bb_trace_index
         redis_client.set(f'{target}.edge.{prev_node_id}.{node_id}',
@@ -205,6 +237,7 @@ def handle_trace_desync_event(event):
         }
     }]
     tree.nodes()[node_id]['bb_trace'] = []
+    tree.nodes()[node_id]['annotation'] = ''
     redis_client.set(f'{target}.node.{node_id}', json.dumps(tree.nodes()[node_id]))
     redis_client.publish(f'{target}.event.node', node_id)
 
@@ -214,6 +247,7 @@ def main():
     p.psubscribe(**{
         '*.event.create_target': handle_create_target,
         '*.event.input': handle_input_event,
+        '*.event.annotate': handle_annotate_event,
         '*.event.trace.blocked': handle_trace_event,
         '*.event.trace.finished': handle_trace_event,
         '*.event.trace.desync': handle_trace_desync_event,

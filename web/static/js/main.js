@@ -102,14 +102,10 @@ class Map {
                 else if (s instanceof Edge)
                     s.node2.select(true, true);
                 break;
-
-            case 'Space':
-                console.log('space'); // TODO: space should do something
-                break;
             }
 
 
-            if (s.editable) {
+            if (s.editable && $('#infoModal').is(':hidden')) {
                 if (e.key.length === 1)
                     s.content += e.key;
                 switch (e.key) {
@@ -321,16 +317,13 @@ class Node {
                     this.rect.addClass('input-pending');
                 }
                 break;
-            case 'desync':
+            }
+
+            if (this.io.channel === 'error') {
                 this.rect.removeClass('output');
                 this.rect.removeClass('input');
                 this.rect.removeClass('input-pending');
                 this.rect.addClass('error');
-                break;
-            }
-
-            if (this.io.channel === 'error') {
-                this.rect.attr('#877');
             }
 
             this.text.text(text);
@@ -467,6 +460,20 @@ class Node {
                     .append($('<br>'))
                     .append($('<br>'))
                     .append(bbGroup);
+                $('#annotationTab')
+                    .empty()
+                    .append($('<textarea>')
+                            .css('width', '100%')
+                            .css('min-height', '300px')
+                            .text(this.data.annotation))
+                    .append($('<br>'))
+                    .append($('<br>'))
+                    .append($('<button>')
+                            .text('Update')
+                            .click(() => {
+                                this.data.annotation = $('#annotationTab > textarea').val();
+                                socket.emit('annotate', this.data);
+                            }));
                 if (prevSelected || !this.editable) {
                     $('#infoModal').modal();
                 }
@@ -489,6 +496,11 @@ class Edge {
 
         this.data = data;
 
+        this.draw();
+    }
+
+    update(data) {
+        this.data = data;
         this.draw();
     }
 
@@ -608,6 +620,20 @@ class Edge {
                     .append($('<br>'))
                     .append($('<br>'))
                     .append(bbGroup);
+                $('#annotationTab')
+                    .empty()
+                    .append($('<textarea>')
+                            .css('width', '100%')
+                            .css('min-height', '300px')
+                            .text(this.data.annotation))
+                    .append($('<br>'))
+                    .append($('<br>'))
+                    .append($('<button>')
+                            .text('Update')
+                            .click(() => {
+                                this.data.annotation = $('#annotationTab > textarea').val();
+                                socket.emit('annotate', this.data);
+                            }));
                 $('#infoModal').modal();
             }
         } else {
@@ -652,15 +678,18 @@ $(() => {
     var i = 0;
     socket.on('update', (e) => {
         setTimeout(() => {
-            const node_data = e.node;
-            const edge_data = e.edge;
-            if (map.nodes[node_data.id] !== undefined) {
-                const node = map.nodes[node_data.id];
-                node.update(node_data);
+            const nodeData = e.node;
+            const edgeData = e.edge;
+            if (map.nodes[nodeData.id] !== undefined) {
+                const node = map.nodes[nodeData.id];
+                node.update(nodeData);
+                if (node.parentEdge) {
+                    node.parentEdge.update(edgeData);
+                }
             } else {
-                const parent = (node_data.parent_id === null) ?
-                      null : map.nodes[node_data.parent_id];
-                new Node(map, parent, node_data, edge_data);
+                const parent = (nodeData.parent_id === null) ?
+                      null : map.nodes[nodeData.parent_id];
+                new Node(map, parent, nodeData, edgeData);
             }
             i -= 100;
         }, i);

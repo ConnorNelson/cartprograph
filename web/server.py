@@ -61,5 +61,11 @@ def on_input(node):
     redis_client.publish(f'{target}.event.input', json.dumps(node))
 
 
+@socketio.on('annotate')
+def on_annotate(node):
+    target = session['target']
+    redis_client.publish(f'{target}.event.annotate', json.dumps(node))
+
+
 if __name__ == "__main__":
     socketio.run(app, host='0.0.0.0', port=4242)
