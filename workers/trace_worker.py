@@ -155,11 +155,13 @@ def main():
         interaction = deserialize_interaction(trace['interaction'])
         bb_trace = trace['bb_trace']
 
-        image_name = redis_client.get(f'{target_id}.config.image_name').decode()
+        target_config = json.loads(redis_client.get(f'{target_id}.config'))
+        image_name = target_config['image_name']
+        network = target_config.get('network')
 
         l.info('Tracing: %s', image_name)
 
-        with archr.targets.DockerImageTarget(image_name).build().start() as target:
+        with archr.targets.DockerImageTarget(image_name, network=network).build().start() as target:
             machine = IOBlockingArchrTracer(target,
                                             interaction=interaction,
                                             bb_trace=bb_trace)

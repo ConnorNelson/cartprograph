@@ -23,7 +23,7 @@ def handle_create_target(event):
     tree = trees[target]
 
     target_config = json.loads(event['data'])
-    redis_client.set(f'{target}.config.image_name', target_config['image_name'])
+    redis_client.set(f'{target}.config', json.dumps(target_config))
 
     l.info('Create Target: %s', target_config)
 

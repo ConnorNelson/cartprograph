@@ -28,6 +28,7 @@ def register_target():
     redis_client.publish(f'{target}.event.create_target', json.dumps({
         'id': request.json['id'],
         'image_name': request.json['image_name'],
+        'network': request.json.get('network'),
     }))
     return {'status': 'ok'}
 
