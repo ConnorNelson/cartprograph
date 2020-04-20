@@ -693,24 +693,19 @@ $(() => {
         connected = true;
     });
 
-    var i = 0;
     socket.on('update', (e) => {
-        setTimeout(() => {
-            const nodeData = e.node;
-            const edgeData = e.edge;
-            if (map.nodes[nodeData.id] !== undefined) {
-                const node = map.nodes[nodeData.id];
-                node.update(nodeData);
-                if (node.parentEdge) {
-                    node.parentEdge.update(edgeData);
-                }
-            } else {
-                const parent = (nodeData.parent_id === null) ?
-                      null : map.nodes[nodeData.parent_id];
-                new Node(map, parent, nodeData, edgeData);
+        const nodeData = e.node;
+        const edgeData = e.edge;
+        if (map.nodes[nodeData.id] !== undefined) {
+            const node = map.nodes[nodeData.id];
+            node.update(nodeData);
+            if (node.parentEdge) {
+                node.parentEdge.update(edgeData);
             }
-            i -= 100;
-        }, i);
-        i += 100;
+        } else {
+            const parent = (nodeData.parent_id === null) ?
+                  null : map.nodes[nodeData.parent_id];
+            new Node(map, parent, nodeData, edgeData);
+        }
     });
 });
