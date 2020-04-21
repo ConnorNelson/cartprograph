@@ -493,6 +493,15 @@ class Node {
                                 this.data.annotation = $('#annotationTab > textarea').val();
                                 socket.emit('annotate', this.data);
                             }));
+                $('#infoModal')
+                    .off('hidden.bs.modal')
+                    .on('hidden.bs.modal', () => {
+                        $('#ioTab').empty();
+                        $('#syscallTab').empty();
+                        $('#bbTab').empty();
+                        $('#annotationTab').empty();
+
+                    });
                 if (prevSelected || !this.editable) {
                     $('#infoModal').modal();
                 }
@@ -653,6 +662,15 @@ class Edge {
                                 this.data.annotation = $('#annotationTab > textarea').val();
                                 socket.emit('annotate', this.data);
                             }));
+                $('#infoModal')
+                    .off('hidden.bs.modal')
+                    .on('hidden.bs.modal', () => {
+                        $('#ioTab').empty();
+                        $('#syscallTab').empty();
+                        $('#bbTab').empty();
+                        $('#annotationTab').empty();
+
+                    });
                 $('#infoModal').modal();
             }
         } else {

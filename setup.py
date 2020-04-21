@@ -25,7 +25,7 @@ class develop(_develop):
 setup(
     name='cartprograph',
     python_requires='>=3.8',
-    version='0.2.2',
+    version='0.2.3',
     packages=[
         'tracer',
         'tracer.qemu',
