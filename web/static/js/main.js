@@ -226,6 +226,7 @@ class Node {
     }
 
     draw(animate=true, recursive=true) {
+        recursive = false;
         if (this.group === undefined) {
             this.group = (this.parent ? this.parent.group.group() : this.map.svg.group());
             this.groupHidden = (this.parent ? this.parent.group.group() : this.map.svg.group());
