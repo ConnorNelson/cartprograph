@@ -155,7 +155,7 @@ class Map {
 }
 
 class Node {
-    constructor(map, parent, data, edgeData, seenBasicBlocks) {
+    constructor(map, parent, data, edgeData) {
         this.map = map;
         this.parent = parent;
 
@@ -170,25 +170,19 @@ class Node {
         this.prevSelectedIndex = 0;
         this.map.nodes[this.id] = this;
 
-        this.update(data, seenBasicBlocks);
-
         if (parent) {
             this.parentEdge = new Edge(this.map, parent, this, edgeData);
             this.parent.children.push(this.parentEdge);
         }
 
-        // Calculate the unique blocks that this node adds
-        const parentBBs = this.parentEdge ? this.parentEdge.data.bb_trace : [];
-        this.uniqueBlocks = [...this.data.bb_trace, ...parentBBs].filter((bb) => !seenBasicBlocks.has(bb)).length;
-
-        this.draw();
+        this.update(data);
 
         if (this.parent === null) {
             this.select();
         }
     }
 
-    update(data, seenBasicBlocks) {
+    update(data) {
         this.data = data;
 
         if (!this.data.interaction) {
@@ -209,6 +203,24 @@ class Node {
         if (['execve', 'exit', 'exit_group', 'signal'].includes(this.data.interaction[0].syscall)) {
             this.shape = 'circle';
         }
+
+        var prevBlocks = new Set();
+        for (var i = 0; i < this.id; i++) {
+            const node = this.map.nodes[i];
+            if (!node)
+                continue;
+            node.data.bb_trace.forEach((e) => {
+                prevBlocks.add(e);
+            });
+            if (!node.parentEdge)
+                continue;
+            node.parentEdge.data.bb_trace.forEach((e) => {
+                prevBlocks.add(e);
+            });
+        }
+        this.uniqueBlocks = new Set(this.data.bb_trace
+                                    .concat(this.parentEdge ? this.parentEdge.data.bb_trace : [])
+                                    .filter((bb) => !prevBlocks.has(bb))).size;
 
         this.draw();
     }
@@ -387,6 +399,10 @@ class Node {
             this.select();
         }
 
+        if (this.parentEdge) {
+            this.parentEdge.draw();
+        }
+
         const curBB = this.groupHidden.bbox();
         var updated = false ||
             (curBB.x !== prevBB.x) ||
@@ -450,14 +466,6 @@ class Node {
                 });
                 $('#syscallTab').empty();
                 $('#syscallTab').append(syscallGroup);
-                const bbGroup = $('<ul>').addClass('list-group');
-                this.data.bb_trace.forEach((e) => {
-                    const item = $('<li>').addClass('list-group-item');
-                    const code = $('<code>');
-                    code.text('0x' + e.toString(16));
-                    item.append(code);
-                    bbGroup.append(item);
-                });
                 const bbCount = $('<span>')
                       .text(this.data.bb_trace.length + ' Basic Blocks');
                 const bbDownload = $('<button>')
@@ -465,24 +473,21 @@ class Node {
                       .append($('<span>').text('Download'))
                       .click(() => {
                           var tracer = this;
-                          var trace = '';
+                          var trace = [];
                           while (tracer) {
-                              var currentTrace = '';
-                              tracer.data.bb_trace.forEach((e) => {
-                                  currentTrace += '0x' + e.toString(16) + '\n';
-                              });
-                              trace = currentTrace + trace;
+                              trace = tracer.data.bb_trace.concat(trace);
                               tracer = tracer.parentEdge || tracer.node1;
                           }
-                          download('trace.csv', trace);
+                          const bin = JSON.parse(this.map.nodes[0].data.interaction[0].args[0]);
+                          download('trace.json', {
+                              'base_addrs': {[bin]: 0x4000000000},
+                              'trace': trace,
+                          });
                       });
                 $('#bbTab')
                     .empty()
                     .append(bbCount)
                     .append(bbDownload)
-                    .append($('<br>'))
-                    .append($('<br>'))
-                    .append(bbGroup);
                 $('#annotationTab')
                     .empty()
                     .append($('<textarea>')
@@ -527,8 +532,6 @@ class Edge {
         this.node2 = node2;
 
         this.data = data;
-
-        this.draw();
     }
 
     update(data) {
@@ -619,14 +622,6 @@ class Edge {
                 });
                 $('#syscallTab').empty();
                 $('#syscallTab').append(syscallGroup);
-                const bbGroup = $('<ul>').addClass('list-group');
-                this.data.bb_trace.forEach((e) => {
-                    const item = $('<li>').addClass('list-group-item');
-                    const code = $('<code>');
-                    code.text('0x' + e.toString(16));
-                    item.append(code);
-                    bbGroup.append(item);
-                });
                 const bbCount = $('<span>')
                       .text(this.data.bb_trace.length + ' Basic Blocks');
                 const bbDownload = $('<button>')
@@ -634,24 +629,21 @@ class Edge {
                       .append($('<span>').text('Download'))
                       .click(() => {
                           var tracer = this;
-                          var trace = '';
+                          var trace = [];
                           while (tracer) {
-                              var currentTrace = '';
-                              tracer.data.bb_trace.forEach((e) => {
-                                  currentTrace += '0x' + e.toString(16) + '\n';
-                              });
-                              trace = currentTrace + trace;
+                              trace = tracer.data.bb_trace.concat(trace);
                               tracer = tracer.parentEdge || tracer.node1;
                           }
-                          download('trace.csv', trace);
+                          const bin = JSON.parse(this.map.nodes[0].data.interaction[0].args[0]);
+                          download('trace.json', {
+                              'base_addrs': {[bin]: 0x4000000000},
+                              'trace': trace,
+                          });
                       });
                 $('#bbTab')
                     .empty()
                     .append(bbCount)
                     .append(bbDownload)
-                    .append($('<br>'))
-                    .append($('<br>'))
-                    .append(bbGroup);
                 $('#annotationTab')
                     .empty()
                     .append($('<textarea>')
@@ -709,10 +701,6 @@ $(() => {
     map = new Map('#map');
     socket = io();
 
-    const seenBasicBlocks = new Set();
-
-    const updateSeenBasicBlocks = (bbs) => bbs.forEach((bb) => seenBasicBlocks.add(bb));
-
     var connected = false;
     socket.on('connect', (e) => {
         if (connected) {
@@ -724,25 +712,16 @@ $(() => {
     socket.on('update', (e) => {
         const nodeData = e.node;
         const edgeData = e.edge;
-
         if (map.nodes[nodeData.id] !== undefined) {
             const node = map.nodes[nodeData.id];
-            node.update(nodeData, seenBasicBlocks);
+            node.update(nodeData);
             if (node.parentEdge) {
                 node.parentEdge.update(edgeData);
             }
         } else {
             const parent = (nodeData.parent_id === null) ?
                   null : map.nodes[nodeData.parent_id];
-            new Node(map, parent, nodeData, edgeData, seenBasicBlocks);
-            // Update seen basic blocks based on the edge
-            if (edgeData) {
-                updateSeenBasicBlocks(edgeData.bb_trace);
-            }
-
-            // update seen basic blocks on the node
-            updateSeenBasicBlocks(nodeData.bb_trace);
+            new Node(map, parent, nodeData, edgeData);
         }
-
     });
 });
