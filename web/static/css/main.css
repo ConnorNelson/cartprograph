@@ -40,6 +40,10 @@ body {
     fill: #887;
 }
 
+.node.signal {
+    fill: #878;
+}
+
 .node.error {
     fill: #877;
 }

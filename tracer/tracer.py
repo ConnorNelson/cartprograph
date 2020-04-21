@@ -35,7 +35,10 @@ class RegexReader:
                     continue
                 self._buffer = self._buffer[match.end():]
                 return match
-            self._buffer += os.read(self.fd, 4096)
+            data = os.read(self.fd, 4096)
+            if not data:
+                return
+            self._buffer += data
 
 
 class TracerEvent(enum.Enum):
@@ -137,8 +140,9 @@ class Tracer:
                 syscall_re = br'(?P<pid>\d+) (?P<syscall>\w+)((\((?P<args>.*?)\)(?= =))|(\((?P<args_blocked>.*?)\)$))'
                 syscall_result_re = br' = (?P<result>.*)\n'
                 bb_addr_re = br'Trace .*?: .*? \[.*?\/(?P<addr>.*?)\/.*?\]'
+                sig_re = br'--- (?P<signal>\w+) {.*?} ---'
 
-                match = reader.read_regex(syscall_re, bb_addr_re)
+                match = reader.read_regex(syscall_re, bb_addr_re, sig_re)
 
                 if match.groupdict().get('addr'):
                     bb_addr_match = match
@@ -165,6 +169,12 @@ class Tracer:
                     result = int(result, 16) if result.startswith('0x') else int(result)
 
                     self.dispatch_event(TracerEvent.SYSCALL_FINISH, syscall=syscall, args=args, result=result)
+
+                elif match.groupdict().get('signal'):
+                    signal_match = match
+                    signal = signal_match['signal'].decode()
+                    self.dispatch_event(TracerEvent.SYSCALL_START, syscall='signal', args=(signal,))
+                    break
 
         finally:
             self.stop()

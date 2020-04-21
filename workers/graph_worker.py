@@ -152,7 +152,7 @@ def handle_trace_event(event):
     def io_partitions():
         current = []
         for e in interaction:
-            if 'io' in e or e['syscall'] in ['execve', 'exit', 'exit_group']:
+            if 'io' in e or e['syscall'] in ['execve', 'exit', 'exit_group', 'signal']:
                 yield current
                 yield [e]
                 current = []

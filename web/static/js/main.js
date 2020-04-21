@@ -183,7 +183,7 @@ class Node {
                 this.content += e.io.data;
             });
         }
-        if (['execve', 'exit', 'exit_group'].includes(this.data.interaction[0].syscall)) {
+        if (['execve', 'exit', 'exit_group', 'signal'].includes(this.data.interaction[0].syscall)) {
             this.shape = 'circle';
         }
 
@@ -226,6 +226,10 @@ class Node {
                 .attr({
                     'r': 25
                 });
+
+            if (this.data.interaction[0].syscall === 'signal') {
+                this.rect.addClass('signal');
+            }
 
         } else {
             const this_ = this;
