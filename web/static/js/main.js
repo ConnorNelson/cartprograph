@@ -155,7 +155,7 @@ class Map {
 }
 
 class Node {
-    constructor(map, parent, data, edgeData) {
+    constructor(map, parent, data, edgeData, seenBasicBlocks) {
         this.map = map;
         this.parent = parent;
 
@@ -170,12 +170,16 @@ class Node {
         this.prevSelectedIndex = 0;
         this.map.nodes[this.id] = this;
 
-        this.update(data);
+        this.update(data, seenBasicBlocks);
 
         if (parent) {
             this.parentEdge = new Edge(this.map, parent, this, edgeData);
             this.parent.children.push(this.parentEdge);
         }
+
+        // Calculate the unique blocks that this node adds
+        const parentBBs = this.parentEdge ? this.parentEdge.data.bb_trace : [];
+        this.uniqueBlocks = [...this.data.bb_trace, ...parentBBs].filter((bb) => !seenBasicBlocks.has(bb)).length;
 
         this.draw();
 
@@ -184,7 +188,7 @@ class Node {
         }
     }
 
-    update(data) {
+    update(data, seenBasicBlocks) {
         this.data = data;
 
         if (!this.data.interaction) {
@@ -256,7 +260,7 @@ class Node {
                 if (!this_.io)
                     return;
 
-                const header = add.tspan(this_.io.direction + ' (' + this_.io.channel + ')')
+                const header = add.tspan(`${this_.io.direction} (${this_.io.channel}) [${this_.uniqueBlocks}]`)
                       .addClass('header')
                       .newLine();
 
@@ -705,6 +709,10 @@ $(() => {
     map = new Map('#map');
     socket = io();
 
+    const seenBasicBlocks = new Set();
+
+    const updateSeenBasicBlocks = (bbs) => bbs.forEach((bb) => seenBasicBlocks.add(bb));
+
     var connected = false;
     socket.on('connect', (e) => {
         if (connected) {
@@ -716,16 +724,25 @@ $(() => {
     socket.on('update', (e) => {
         const nodeData = e.node;
         const edgeData = e.edge;
+
         if (map.nodes[nodeData.id] !== undefined) {
             const node = map.nodes[nodeData.id];
-            node.update(nodeData);
+            node.update(nodeData, seenBasicBlocks);
             if (node.parentEdge) {
                 node.parentEdge.update(edgeData);
             }
         } else {
             const parent = (nodeData.parent_id === null) ?
                   null : map.nodes[nodeData.parent_id];
-            new Node(map, parent, nodeData, edgeData);
+            new Node(map, parent, nodeData, edgeData, seenBasicBlocks);
+            // Update seen basic blocks based on the edge
+            if (edgeData) {
+                updateSeenBasicBlocks(edgeData.bb_trace);
+            }
+
+            // update seen basic blocks on the node
+            updateSeenBasicBlocks(nodeData.bb_trace);
         }
+
     });
 });
