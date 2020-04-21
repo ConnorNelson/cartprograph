@@ -13,12 +13,6 @@ class Map {
 
         this.selected = null;
 
-        // function zoom(e) {
-        //     e.preventDefault();
-        // }
-        // this.svg.on('zoom', zoom);
-        // this.svg.on('pinchZoomStart', zoom);
-
         const this_ = this;
 
         this.svg.on('panning', function (e) {
@@ -67,50 +61,75 @@ class Map {
 
             case 'ArrowLeft':
                 if (s instanceof Node && s.parentEdge) {
-                    const i = s.parent.children.indexOf(s.parentEdge);
-                    if (i > 0)
-                        s.parent.children[i-1].node2.select(true, true);
+                    const i = !e.shiftKey ?
+                          s.parent.children.indexOf(s.parentEdge) - 1 :
+                          0;
+                    if (i >= 0)
+                        s.parent.children[i].node2.select(true, true);
                 } else if (s instanceof Edge) {
-                    const i = s.node1.children.indexOf(s);
-                    if (i > 0)
-                        s.node1.children[i-1].select(true, true);
+                    const i = !e.shiftKey ?
+                          s.node1.children.indexOf(s) - 1 :
+                          0;
+                    if (i >= 0)
+                        s.node1.children[i].select(true, true);
                 }
                 break;
 
             case 'ArrowRight':
                 if (s instanceof Node && s.parentEdge) {
-                    const i = s.parent.children.indexOf(s.parentEdge);
-                    if (i < s.parent.children.length - 1)
-                        s.parent.children[i+1].node2.select(true, true);
+                    const i = !e.shiftKey ?
+                          s.parent.children.indexOf(s.parentEdge) + 1 :
+                          s.parent.children.length - 1;
+                    if (i <= s.parent.children.length - 1)
+                        s.parent.children[i].node2.select(true, true);
                 } else if (s instanceof Edge) {
-                    const i = s.node1.children.indexOf(s);
-                    if (i < s.node1.children.length - 1)
-                        s.node1.children[i+1].select(true, true);
+                    const i = !e.shiftKey ?
+                          s.node1.children.indexOf(s) + 1 :
+                          s.node1.children.length - 1;
+                    if (i <= s.node1.children.length - 1)
+                        s.node1.children[i].select(true, true);
                 }
                 break;
 
             case 'ArrowUp':
-                if (s instanceof Node && s.parentEdge)
-                    s.parentEdge.select(true, true);
-                else if (s instanceof Edge)
-                    s.node1.select(true, true);
+                if (!e.shiftKey) {
+                    if (s instanceof Node && s.parentEdge)
+                        s.parentEdge.select(true, true);
+                    else if (s instanceof Edge)
+                        s.node1.select(true, true);
+                } else {
+                    var toSelect = s.node1 || s.parent || s;
+                    while (toSelect.parent && toSelect.parent.children.length === 1)
+                        toSelect = toSelect.parent;
+                    toSelect.select(true, true);
+                }
                 break;
 
             case 'ArrowDown':
-                if (s instanceof Node && s.children.length)
-                    s.children[s.prevSelectedIndex].select(true, true);
-                else if (s instanceof Edge)
-                    s.node2.select(true, true);
+                if (!e.shiftKey) {
+                    if (s instanceof Node && s.children.length)
+                        s.children[s.prevSelectedIndex].select(true, true);
+                    else if (s instanceof Edge)
+                        s.node2.select(true, true);
+                } else {
+                    var toSelect = s.node2 || s;
+                    while (toSelect.children.length)
+                        toSelect = toSelect.children[0].node2;
+                    toSelect.select(true, true);
+                }
                 break;
             }
-
 
             if (s.editable && $('#infoModal').is(':hidden')) {
                 if (e.key.length === 1)
                     s.content += e.key;
                 switch (e.key) {
                 case 'Backspace':
-                    s.content = s.content.slice(0, -1);
+                    if (!e.shiftKey) {
+                        s.content = s.content.slice(0, -1);
+                    } else {
+                        s.content = '';
+                    }
                     break;
                 case 'Enter':
                     if (!e.ctrlKey && !e.shiftKey) {
@@ -271,10 +290,6 @@ class Node {
                             cursor.newLine();
                     }
                 }
-
-                header.attr({
-                    'dx': add.bbox().width / 2,
-                });
             }
 
             this.textHidden.text(text);
@@ -441,13 +456,6 @@ class Node {
                 });
                 const bbCount = $('<span>')
                       .text(this.data.bb_trace.length + ' Basic Blocks');
-                const otherBBAddrs = new Set([].concat.apply([], Object.values(this.map.nodes).map((e) => {
-                    return (e === this ? [] : e.data.bb_trace).concat(
-                        e.parentEdge && e.parentEdge !== this ? e.parentEdge.data.bb_trace : [])
-                })));
-                const uniqueBBAddrs = new Set([...this.data.bb_trace].filter((e) => !otherBBAddrs.has(e)));
-                const bbUniqueCount = $('<span>')
-                      .text(uniqueBBAddrs.size + ' Unique Basic Blocks');
                 const bbDownload = $('<button>')
                       .css('float', 'right')
                       .append($('<span>').text('Download'))
@@ -467,8 +475,6 @@ class Node {
                 $('#bbTab')
                     .empty()
                     .append(bbCount)
-                    .append($('<br>'))
-                    .append(bbUniqueCount)
                     .append(bbDownload)
                     .append($('<br>'))
                     .append($('<br>'))
@@ -610,13 +616,6 @@ class Edge {
                 });
                 const bbCount = $('<span>')
                       .text(this.data.bb_trace.length + ' Basic Blocks');
-                const otherBBAddrs = new Set([].concat.apply([], Object.values(this.map.nodes).map((e) => {
-                    return (e === this ? [] : e.data.bb_trace).concat(
-                        e.parentEdge && e.parentEdge !== this ? e.parentEdge.data.bb_trace : [])
-                })));
-                const uniqueBBAddrs = new Set([...this.data.bb_trace].filter((e) => !otherBBAddrs.has(e)));
-                const bbUniqueCount = $('<span>')
-                      .text(uniqueBBAddrs.size + ' Unique Basic Blocks');
                 const bbDownload = $('<button>')
                       .css('float', 'right')
                       .append($('<span>').text('Download'))
@@ -636,8 +635,6 @@ class Edge {
                 $('#bbTab')
                     .empty()
                     .append(bbCount)
-                    .append($('<br>'))
-                    .append(bbUniqueCount)
                     .append(bbDownload)
                     .append($('<br>'))
                     .append($('<br>'))
@@ -668,7 +665,8 @@ class Edge {
 }
 
 function download(filename, data) {
-    var blob = new Blob([data], {type: 'text/csv'});
+    var blob = new Blob([JSON.stringify(data, null, '\t')],
+                        {type: 'application/json'});
     if(window.navigator.msSaveOrOpenBlob) {
         window.navigator.msSaveBlob(blob, filename);
     }
