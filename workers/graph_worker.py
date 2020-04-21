@@ -12,6 +12,7 @@ import networkx as nx
 
 l = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
+logging.getLogger().setLevel(os.getenv("LOGLEVEL", "INFO"))
 
 redis_client = redis.Redis(host='localhost', port=6379)
 trees = collections.defaultdict(nx.DiGraph)

@@ -18,6 +18,7 @@ from tracer import IOBlockingTracer, IO, Block, Desync, on_event, TracerEvent
 
 l = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
+logging.getLogger().setLevel(os.getenv("LOGLEVEL", "INFO"))
 
 
 class timeout(contextlib.ContextDecorator):

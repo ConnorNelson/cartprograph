@@ -10,6 +10,7 @@ from flask_socketio import SocketIO
 
 l = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
+logging.getLogger().setLevel(os.getenv("LOGLEVEL", "INFO"))
 
 redis_client = redis.Redis(host='localhost', port=6379)
 socketio = SocketIO(message_queue='redis://localhost:6379')
