@@ -7,12 +7,17 @@ import requests
 
 
 def main():
-    if len(sys.argv) != 2:
-        print(f"Usage: {sys.argv[0]} <IMAGE_NAME>", file=sys.stderr)
+    if len(sys.argv) < 2:
+        print(f"Usage: {sys.argv[0]} <IMAGE_NAME> [SESSION_ID]", file=sys.stderr)
         exit(1)
 
     image_name = sys.argv[1]
-    session_id = "".join(random.choice("012345679abcdef") for _ in range(8))
+
+    session_id = (
+        sys.argv[2]
+        if len(sys.argv) > 2
+        else "".join(random.choice("012345679abcdef") for _ in range(8))
+    )
 
     url = "http://localhost:4242"
 
