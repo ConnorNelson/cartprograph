@@ -9,6 +9,7 @@ RUN mkdir /cartprograph
 WORKDIR /cartprograph
 
 ADD requirements.txt .
+RUN pip install "archr[qtrace] @ git+https://github.com/angr/archr"  # TODO: remove once archr[qtrace] on pypi
 RUN pip install -r requirements.txt
 
 ADD setup.py .

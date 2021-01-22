@@ -4,4 +4,4 @@ flask
 flask-socketio
 eventlet
 redis
-archr
+archr[qtrace]
