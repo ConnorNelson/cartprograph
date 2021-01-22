@@ -132,3 +132,5 @@ Initialize the test target in cartprograph:
 ```sh
 scripts/new_target.py simple_program
 ```
+
+> :warning: **Cartprograph's web UI is primarily tested in Chromium, other browsers seem to have issues**
