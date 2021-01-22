@@ -8,12 +8,18 @@ RUN curl -fsSL https://get.docker.com -o - | /bin/sh
 RUN mkdir /cartprograph
 WORKDIR /cartprograph
 
-ADD . .
+ADD requirements.txt .
+RUN pip install -r requirements.txt
 
+ADD setup.py .
+ADD tracer tracer
 RUN pip install -ve .
 
-ENV NUM_TRACERS=4
+ADD supervisord.conf .
+ADD web web
+ADD workers workers
 
+ENV NUM_TRACERS=4
 EXPOSE 4242
 
 CMD ["/usr/bin/supervisord"]

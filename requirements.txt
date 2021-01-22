@@ -1,0 +1,7 @@
+setuptools
+networkx
+flask
+flask-socketio
+eventlet
+redis
+archr
