@@ -4,6 +4,9 @@
 
 int main()
 {
+    setvbuf(stdout, NULL, _IONBF, 0);
+    setvbuf(stderr, NULL, _IONBF, 0);
+
     char buffer[128];
 
     while (true) {
