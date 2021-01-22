@@ -92,6 +92,7 @@ class IOBlockingTracer(InteractionTracer):
             self.current_interaction['io'] = IO('stdin', 'read', None)
             raise Block(self, syscall, args)
         else:
+            io = self.current_interaction['io']
             self.stdin.write(io.data)
             self.stdin.flush()
 
