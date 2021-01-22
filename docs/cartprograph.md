@@ -111,3 +111,24 @@ If non-determinism is detected, a red desync node will be generated.
 If tracing takes too long, the tracer will timeout and a red timeout node will be generated. Unfortunately, the tracer is quite slow currently, and this may occur in programs that need to execute hundreds of thousands of basic blocks. Any other errors will generate a red error node. Backtraces for desyncs and errors will be stored as annotations on their node.
 
 Progress for supporting nondeterminism and significantly increasing tracer speed are currently underway.
+
+## Running
+
+Build and run cartprograph:
+
+```sh
+docker build -t cartprograph .
+docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock -p 4242:4242 cartprograph
+```
+
+Build a test target:
+
+```sh
+docker build -t simple_program tests/targets/simple_program
+```
+
+Initialize the test target in cartprograph:
+
+```sh
+scripts/new_target.py simple_program
+```
