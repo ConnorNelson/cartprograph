@@ -5,8 +5,8 @@ RUN apt-get update && \
 
 RUN curl -fsSL https://get.docker.com -o - | /bin/sh
 
-RUN mkdir /app
-WORKDIR /app
+RUN mkdir /cartprograph
+WORKDIR /cartprograph
 
 ADD . .
 
