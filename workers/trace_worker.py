@@ -214,11 +214,10 @@ def main():
             )
 
             def publish_trace(channel):
-                nonlocal trace
                 trace["interaction"] = serialize_interaction(machine.interaction)
                 trace["bb_trace"] = machine.bb_trace
-                trace = json.dumps(trace)
-                redis_client.publish(channel, trace)
+                trace_data = json.dumps(trace)
+                redis_client.publish(channel, trace_data)
 
             try:
                 with timeout(180):
