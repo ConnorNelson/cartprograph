@@ -43,9 +43,6 @@ def on_connect():
             },
         )
 
-    # TODO: does a room need to be joined?
-    # join_room(session["target"])
-
 
 @socketio.on("input")
 def on_input(node):
