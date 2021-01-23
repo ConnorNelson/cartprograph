@@ -21,6 +21,12 @@ logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 logging.getLogger().setLevel(os.getenv("LOGLEVEL", "INFO"))
 
 
+TARGET_IMAGE = os.getenv("TARGET_IMAGE")
+TARGET_NETWORK = os.getenv("TARGET_NETWORK")
+if not TARGET_IMAGE:
+    raise Exception("Error: no target image specified")
+
+
 class timeout(contextlib.ContextDecorator):
     def __init__(self, seconds, suppress_timeout_errors=False):
         self.seconds = int(seconds)
@@ -193,22 +199,15 @@ def main():
     redis_client = redis.Redis(host="localhost", port=6379)
 
     while True:
-        _, trace = redis_client.blpop("work.trace")
-        trace = json.loads(trace)
-
-        target_id = trace["target"]
-        interaction = deserialize_interaction(trace["interaction"])
-        bb_trace = trace["bb_trace"]
-
-        target_config = json.loads(redis_client.get(f"{target_id}.config"))
-        image_name = target_config["image_name"]
-        network = target_config.get("network")
-
-        l.info("Tracing: %s", image_name)
-
         with archr.targets.DockerImageTarget(
-            image_name, network=network
+            TARGET_IMAGE, network=TARGET_NETWORK
         ).build().start() as target:
+            _, trace = redis_client.blpop("work.trace")
+            trace = json.loads(trace)
+
+            interaction = deserialize_interaction(trace["interaction"])
+            bb_trace = trace["bb_trace"]
+
             machine = IOBlockingArchrTracer(
                 target, interaction=interaction, bb_trace=bb_trace
             )
@@ -219,26 +218,28 @@ def main():
                 trace_data = json.dumps(trace)
                 redis_client.publish(channel, trace_data)
 
+            l.info("Tracing")
+
             try:
                 with timeout(180):
                     machine.run()
 
             except Block:
-                publish_trace(f"{target_id}.event.trace.blocked")
+                publish_trace("event.trace.blocked")
 
             except Desync as e:
                 trace["annotation"] = traceback.format_exc()
-                publish_trace(f"{target_id}.event.trace.desync")
+                publish_trace("event.trace.desync")
 
             except TimeoutError:
-                publish_trace(f"{target_id}.event.trace.timeout")
+                publish_trace("event.trace.timeout")
 
             except Exception as e:
                 trace["annotation"] = traceback.format_exc()
-                publish_trace(f"{target_id}.event.trace.error")
+                publish_trace("event.trace.error")
 
             else:
-                publish_trace(f"{target_id}.event.trace.finished")
+                publish_trace("event.trace.finished")
 
 
 if __name__ == "__main__":

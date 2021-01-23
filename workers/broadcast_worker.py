@@ -17,13 +17,11 @@ socketio = SocketIO(message_queue="redis://localhost:6379")
 
 
 def handle_node_event(event):
-    target = event["channel"].decode().split(".")[0]
-
     node_id = int(event["data"])
-    node = json.loads(redis_client.get(f"{target}.node.{node_id}"))
+    node = json.loads(redis_client.get(f"node.{node_id}"))
     parent_id = node["parent_id"]
     if parent_id is not None:
-        edge = json.loads(redis_client.get(f"{target}.edge.{parent_id}.{node_id}"))
+        edge = json.loads(redis_client.get(f"edge.{parent_id}.{node_id}"))
     else:
         edge = None
 
@@ -35,7 +33,6 @@ def handle_node_event(event):
             "node": node,
             "edge": edge,
         },
-        room=target,
     )
 
 
@@ -43,7 +40,7 @@ def main():
     p = redis_client.pubsub(ignore_subscribe_messages=True)
     p.psubscribe(
         **{
-            "*.event.node": handle_node_event,
+            "event.node": handle_node_event,
         }
     )
 

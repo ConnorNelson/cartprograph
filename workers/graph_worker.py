@@ -15,21 +15,13 @@ logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 logging.getLogger().setLevel(os.getenv("LOGLEVEL", "INFO"))
 
 redis_client = redis.Redis(host="localhost", port=6379)
-trees = collections.defaultdict(nx.DiGraph)
-new_ids = collections.defaultdict(itertools.count)
+graph = nx.DiGraph()
+new_id = itertools.count()
 
 
-def handle_create_target(event):
-    target = event["channel"].decode().split(".")[0]
-    tree = trees[target]
-
-    target_config = json.loads(event["data"])
-    redis_client.set(f"{target}.config", json.dumps(target_config))
-
-    l.info("Create Target: %s", target_config)
-
-    node_id = next(new_ids[target])
-    tree.add_node(
+def initialize_graph():
+    node_id = next(new_id)
+    graph.add_node(
         node_id,
         **{
             "id": node_id,
@@ -39,11 +31,10 @@ def handle_create_target(event):
             "annotation": "",
         },
     )
-    redis_client.set(f"{target}.node.{node_id}", json.dumps(tree.nodes()[node_id]))
+    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
 
     trace = json.dumps(
         {
-            "target": target,
             "node_id": node_id,
             "interaction": [],
             "bb_trace": [],
@@ -53,39 +44,36 @@ def handle_create_target(event):
 
 
 def handle_input_event(event):
-    target = event["channel"].decode().split(".")[0]
-    tree = trees[target]
-
     node = json.loads(event["data"])
     node_id = node["id"]
 
     prev_node_id = node["parent_id"]
-    edge = tree.edges()[prev_node_id, node_id]
+    edge = graph.edges()[prev_node_id, node_id]
 
-    node_id = next(new_ids[target])
+    node_id = next(new_id)
     node["id"] = node_id
 
     l.info("New Input: %d", node_id)
 
-    tree.add_node(node_id, **node)
-    tree.add_edge(prev_node_id, node_id, **edge)
+    graph.add_node(node_id, **node)
+    graph.add_edge(prev_node_id, node_id, **edge)
     redis_client.set(
-        f"{target}.edge.{prev_node_id}.{node_id}",
-        json.dumps(tree.edges()[prev_node_id, node_id]),
+        f"edge.{prev_node_id}.{node_id}",
+        json.dumps(graph.edges()[prev_node_id, node_id]),
     )
-    redis_client.set(f"{target}.node.{node_id}", json.dumps(tree.nodes()[node_id]))
-    redis_client.publish(f"{target}.event.node", node_id)
+    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
+    redis_client.publish(f"event.node", node_id)
 
     interaction = []
     bb_trace = []
-    root = tree.nodes()[0]
+    root = graph.nodes()[0]
     interaction.extend(root["interaction"])
     bb_trace.extend(root["bb_trace"])
-    path = nx.shortest_path(tree, 0, node["id"])
+    path = nx.shortest_path(graph, 0, node["id"])
     for n1, n2 in zip(path, path[1:]):
-        node1 = tree.nodes()[n1]
-        node2 = tree.nodes()[n2]
-        edge = tree.edges()[n1, n2]
+        node1 = graph.nodes()[n1]
+        node2 = graph.nodes()[n2]
+        edge = graph.edges()[n1, n2]
         interaction.extend(edge["interaction"])
         interaction.extend(node2["interaction"])
         bb_trace.extend(edge["bb_trace"])
@@ -93,7 +81,6 @@ def handle_input_event(event):
 
     trace = json.dumps(
         {
-            "target": target,
             "node_id": node_id,
             "interaction": interaction,
             "bb_trace": bb_trace,
@@ -103,9 +90,6 @@ def handle_input_event(event):
 
 
 def handle_annotate_event(event):
-    target = event["channel"].decode().split(".")[0]
-    tree = trees[target]
-
     data = json.loads(event["data"])
 
     if "id" in data:
@@ -114,9 +98,9 @@ def handle_annotate_event(event):
 
         l.info("Annotate: %d", node_id)
 
-        tree.add_node(node_id, **node)
-        redis_client.set(f"{target}.node.{node_id}", json.dumps(tree.nodes()[node_id]))
-        redis_client.publish(f"{target}.event.node", node_id)
+        graph.add_node(node_id, **node)
+        redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
+        redis_client.publish(f"event.node", node_id)
 
     else:
         edge = data
@@ -125,18 +109,15 @@ def handle_annotate_event(event):
 
         l.info("Annotate: %d -> %d", prev_node_id, node_id)
 
-        tree.add_edge(prev_node_id, node_id, **edge)
+        graph.add_edge(prev_node_id, node_id, **edge)
         redis_client.set(
-            f"{target}.edge.{prev_node_id}.{node_id}",
-            json.dumps(tree.edges()[prev_node_id, node_id]),
+            f"edge.{prev_node_id}.{node_id}",
+            json.dumps(graph.edges()[prev_node_id, node_id]),
         )
-        redis_client.publish(f"{target}.event.node", node_id)
+        redis_client.publish(f"event.node", node_id)
 
 
 def handle_trace_event(event):
-    target = event["channel"].decode().split(".")[0]
-    tree = trees[target]
-
     trace = json.loads(event["data"])
     node_id = trace["node_id"]
     interaction = trace["interaction"]
@@ -147,13 +128,13 @@ def handle_trace_event(event):
 
     interaction_index = 0
     bb_trace_index = 0
-    root = tree.nodes()[0]
+    root = graph.nodes()[0]
     interaction_index += len(root["interaction"])
-    path = nx.shortest_path(tree, 0, node_id)
+    path = nx.shortest_path(graph, 0, node_id)
     for n1, n2 in zip(path, path[1:]):
-        node1 = tree.nodes()[n1]
-        node2 = tree.nodes()[n2]
-        edge = tree.edges()[n1, n2]
+        node1 = graph.nodes()[n1]
+        node2 = graph.nodes()[n2]
+        edge = graph.edges()[n1, n2]
         interaction_index += len(edge["interaction"])
         bb_trace_index += len(edge["bb_trace"])
         if n2 != node_id:
@@ -207,19 +188,19 @@ def handle_trace_event(event):
 
     _, node_partition = next(partitions)
     node_bb_trace_index = node_partition[-1]["bb_trace_index"]
-    tree.nodes()[node_id]["interaction"] = node_partition
-    tree.nodes()[node_id]["bb_trace"] = bb_trace[bb_trace_index:node_bb_trace_index]
+    graph.nodes()[node_id]["interaction"] = node_partition
+    graph.nodes()[node_id]["bb_trace"] = bb_trace[bb_trace_index:node_bb_trace_index]
     bb_trace_index = node_bb_trace_index
-    redis_client.set(f"{target}.node.{node_id}", json.dumps(tree.nodes()[node_id]))
-    redis_client.publish(f"{target}.event.node", node_id)
+    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
+    redis_client.publish(f"event.node", node_id)
 
     prev_node_id = node_id
     for edge_partition, node_partition in partitions:
-        node_id = next(new_ids[target])
+        node_id = next(new_id)
         edge_bb_trace_index = (
             edge_partition[-1]["bb_trace_index"] if edge_partition else bb_trace_index
         )
-        tree.add_edge(
+        graph.add_edge(
             prev_node_id,
             node_id,
             **{
@@ -232,7 +213,7 @@ def handle_trace_event(event):
         )
         bb_trace_index = edge_bb_trace_index
         node_bb_trace_index = node_partition[-1]["bb_trace_index"]
-        tree.add_node(
+        graph.add_node(
             node_id,
             **{
                 "id": node_id,
@@ -244,26 +225,23 @@ def handle_trace_event(event):
         )
         bb_trace_index = node_bb_trace_index
         redis_client.set(
-            f"{target}.edge.{prev_node_id}.{node_id}",
-            json.dumps(tree.edges()[prev_node_id, node_id]),
+            f"edge.{prev_node_id}.{node_id}",
+            json.dumps(graph.edges()[prev_node_id, node_id]),
         )
-        redis_client.set(f"{target}.node.{node_id}", json.dumps(tree.nodes()[node_id]))
-        redis_client.publish(f"{target}.event.node", node_id)
+        redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
+        redis_client.publish("event.node", node_id)
         prev_node_id = node_id
 
 
 def handle_trace_error_event(event):
-    target = event["channel"].decode().split(".")[0]
-    tree = trees[target]
-
-    error_type = event["channel"].decode().split(".")[3]
+    error_type = event["channel"].decode().split(".")[2]
 
     trace = json.loads(event["data"])
     node_id = trace["node_id"]
 
     l.info("Trace Error (%s): %d", error_type, node_id)
 
-    tree.nodes()[node_id]["interaction"] = [
+    graph.nodes()[node_id]["interaction"] = [
         {
             "syscall": "error",
             "args": [],
@@ -274,41 +252,39 @@ def handle_trace_error_event(event):
             },
         }
     ]
-    tree.nodes()[node_id]["bb_trace"] = []
-    tree.nodes()[node_id]["annotation"] = trace.get("annotation", "")
-    redis_client.set(f"{target}.node.{node_id}", json.dumps(tree.nodes()[node_id]))
-    redis_client.publish(f"{target}.event.node", node_id)
+    graph.nodes()[node_id]["bb_trace"] = []
+    graph.nodes()[node_id]["annotation"] = trace.get("annotation", "")
+    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
+    redis_client.publish("event.node", node_id)
 
 
 def main():
     p = redis_client.pubsub(ignore_subscribe_messages=True)
     p.psubscribe(
         **{
-            "*.event.create_target": handle_create_target,
-            "*.event.input": handle_input_event,
-            "*.event.annotate": handle_annotate_event,
-            "*.event.trace.blocked": handle_trace_event,
-            "*.event.trace.finished": handle_trace_event,
-            "*.event.trace.desync": handle_trace_error_event,
-            "*.event.trace.timeout": handle_trace_error_event,
-            "*.event.trace.error": handle_trace_error_event,
+            "event.input": handle_input_event,
+            "event.annotate": handle_annotate_event,
+            "event.trace.blocked": handle_trace_event,
+            "event.trace.finished": handle_trace_event,
+            "event.trace.desync": handle_trace_error_event,
+            "event.trace.timeout": handle_trace_error_event,
+            "event.trace.error": handle_trace_error_event,
         }
     )
 
     nodes = [
-        (key, json.loads(redis_client.get(key)))
-        for key in redis_client.keys("*.node.*")
+        (key, json.loads(redis_client.get(key))) for key in redis_client.keys("node.*")
     ]
     edges = [
-        (key, json.loads(redis_client.get(key)))
-        for key in redis_client.keys("*.edge.*")
+        (key, json.loads(redis_client.get(key))) for key in redis_client.keys("edge.*")
     ]
     for key, node in nodes:
-        target = key.decode().split(".")[0]
-        trees[target].add_node(node["id"], **node)
+        graph.add_node(node["id"], **node)
     for key, edge in edges:
-        target = key.decode().split(".")[0]
-        trees[target].add_edge(edge["start_node_id"], edge["end_node_id"], **edge)
+        graph.add_edge(edge["start_node_id"], edge["end_node_id"], **edge)
+
+    if not graph:
+        initialize_graph()
 
     for event in p.listen():
         pass
