@@ -114,23 +114,17 @@ Progress for supporting nondeterminism and significantly increasing tracer speed
 
 ## Running
 
-Build and run cartprograph:
-
-```sh
-docker build -t cartprograph .
-docker run -it --rm -v /var/run/docker.sock:/var/run/docker.sock -p 4242:4242 cartprograph
-```
-
 Build a test target:
 
 ```sh
 docker build -t simple_program tests/targets/simple_program
 ```
 
-Initialize the test target in cartprograph:
+Build and run cartprograph against the test target:
 
 ```sh
-scripts/new_target.py simple_program
+docker build -t cartprograph .
+docker run -it --rm -e TARGET_IMAGE=simple_program -v /var/run/docker.sock:/var/run/docker.sock -p 4242:4242 cartprograph
 ```
 
 > :warning: **Cartprograph's web UI is primarily tested in Chromium, other browsers seem to have issues**
