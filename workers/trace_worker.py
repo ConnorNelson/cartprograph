@@ -25,6 +25,7 @@ TARGET_IMAGE = os.getenv("TARGET_IMAGE")
 TARGET_NETWORK = os.getenv("TARGET_NETWORK")
 if not TARGET_IMAGE:
     raise Exception("Error: no target image specified")
+NAME = os.getenv("SUPERVISOR_PROCESS_NAME")
 
 
 class timeout(contextlib.ContextDecorator):
@@ -199,9 +200,10 @@ def main():
     redis_client = redis.Redis(host="localhost", port=6379)
 
     while True:
-        with archr.targets.DockerImageTarget(
-            TARGET_IMAGE, network=TARGET_NETWORK
-        ).build().start() as target:
+        target = archr.targets.DockerImageTarget(TARGET_IMAGE, network=TARGET_NETWORK)
+        target.build()
+        target.start(name=NAME)
+        with target:
             _, trace = redis_client.blpop("work.trace")
             trace = json.loads(trace)
 
