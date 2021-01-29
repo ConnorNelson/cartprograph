@@ -2,6 +2,7 @@
 
 import os
 import re
+import time
 import signal
 import traceback
 import pathlib
@@ -12,7 +13,6 @@ import logging
 import redis
 import archr
 
-import tracer.qemu
 from tracer import IOBlockingTracer, IO, Block, Desync, on_event, TracerEvent
 
 
@@ -46,44 +46,7 @@ class timeout(contextlib.ContextDecorator):
             return True
 
 
-class IOBlockingArchrTracer(tracer.IOBlockingTracer):
-    def __init__(self, target, interaction, bb_trace):
-        super().__init__(target.target_args, interaction=interaction, bb_trace=bb_trace)
-        self.target = target
-        self.fd_channels = {}
-
-    def start(self):
-        qemu_path_src = tracer.qemu.qemu_path(self.target.target_arch)
-        qemu_path = pathlib.Path(self.target.tmpwd) / qemu_path_src.name
-        self.target.inject_path(qemu_path_src, qemu_path)
-
-        log_path = pathlib.Path(self.target.tmpwd) / "qemu_log"
-        self.target.run_command(["mkfifo", str(log_path)]).wait()
-        log_popen = self.target.run_command(["cat", str(log_path)])
-
-        qemu_args = [
-            str(qemu_path),
-            "-d",
-            "strace,exec,nochain",
-            "-D",
-            str(log_path),
-            "--",
-            *self.target.target_args,
-        ]
-
-        flight = self.target.flight(qemu_args)
-
-        self.flight = flight
-        self.log_popen = log_popen
-
-        return flight.process, log_popen.stdout.fileno()
-
-    def stop(self):
-        self.flight.process.kill()
-        self.flight.process.wait()
-        self.log_popen.kill()
-        self.log_popen.wait()
-
+class CartprographTracer(IOBlockingTracer):
     @on_event(TracerEvent.SYSCALL_START, "accept")
     def on_accept(self, syscall, args):
         fd = int(args[0])
@@ -209,10 +172,20 @@ def main():
 
             interaction = deserialize_interaction(trace["interaction"])
             bb_trace = trace["bb_trace"]
+            machine = None
 
-            machine = IOBlockingArchrTracer(
-                target, interaction=interaction, bb_trace=bb_trace
-            )
+            def Machine(argv, *, trace_socket, std_streams):
+                nonlocal machine  # TODO: refactor
+                machine = CartprographTracer(
+                    target.target_args,
+                    interaction=interaction,
+                    bb_trace=bb_trace,
+                    trace_socket=trace_socket,
+                    std_streams=std_streams,
+                )
+                machine.target = target
+                machine.fd_channels = {}
+                return machine
 
             def publish_trace(channel):
                 trace["interaction"] = serialize_interaction(machine.interaction)
@@ -221,12 +194,18 @@ def main():
                 redis_client.publish(channel, trace_data)
 
             l.info("Tracing")
+            start_time = time.perf_counter()
 
             try:
                 with timeout(180):
-                    machine.run()
+                    analyzer = archr.analyzers.QTraceAnalyzer(target)
+                    analyzer.fire(Machine, timeout_exception=False)
 
             except Block:
+                end_time = time.perf_counter()
+                total_time = round(end_time - start_time, 3)
+                l.info(f"Traced in {total_time}s")
+
                 publish_trace("event.trace.blocked")
 
             except Desync as e:

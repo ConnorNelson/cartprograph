@@ -40,9 +40,22 @@ class Block(Exception):
 
 class IOBlockingTracer(InteractionTracer):
     def __init__(
-        self, target_args, handle_block=None, *, interaction=None, bb_trace=None
+        self,
+        argv,
+        handle_block=None,
+        *,
+        interaction=None,
+        bb_trace=None,
+        trace_socket=None,
+        std_streams=(None, None, None),
     ):
-        super().__init__(target_args, interaction=interaction, bb_trace=bb_trace)
+        super().__init__(
+            argv,
+            interaction=interaction,
+            bb_trace=bb_trace,
+            trace_socket=trace_socket,
+            std_streams=std_streams,
+        )
         self.handle_block = handle_block
 
     def run(self):

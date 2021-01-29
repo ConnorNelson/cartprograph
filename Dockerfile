@@ -9,12 +9,12 @@ RUN mkdir /cartprograph
 WORKDIR /cartprograph
 
 ADD requirements.txt .
-RUN pip install "archr[qtrace] @ git+https://github.com/angr/archr"  # TODO: remove once archr[qtrace] on pypi
 RUN pip install -r requirements.txt
+RUN pip install --upgrade --no-deps "archr[qtrace] @ git+https://github.com/angr/archr"  # TODO: remove once changes propogate to pypi
 
 ADD setup.py .
 ADD tracer tracer
-RUN pip install -ve .
+RUN pip install --no-deps -ve .
 
 ADD supervisord.conf .
 ADD web web

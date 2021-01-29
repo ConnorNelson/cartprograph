@@ -22,12 +22,20 @@ class Desync(Exception):
 
 
 class InteractionTracer(Tracer):
-    def __init__(self, target_args, *, interaction=None, bb_trace=None):
+    def __init__(
+        self,
+        argv,
+        *,
+        interaction=None,
+        bb_trace=None,
+        trace_socket=None,
+        std_streams=(None, None, None),
+    ):
         self.interaction = interaction if interaction is not None else list()
         self.interaction_index = 0
         self.bb_trace = bb_trace if bb_trace is not None else list()
         self.bb_trace_index = 0
-        super().__init__(target_args)
+        super().__init__(argv, trace_socket=trace_socket, std_streams=std_streams)
 
     @property
     def current_interaction(self):
@@ -47,22 +55,22 @@ class InteractionTracer(Tracer):
 
     @property
     def stdin(self):
-        return self.popen.stdin if hasattr(self, "popen") else None
+        return self.process.stdin if hasattr(self, "process") else None
 
     @property
     def stdout(self):
-        return self.popen.stdout if hasattr(self, "popen") else None
+        return self.process.stdout if hasattr(self, "process") else None
 
     @property
     def stderr(self):
-        return self.popen.stderr if hasattr(self, "popen") else None
+        return self.process.stderr if hasattr(self, "process") else None
 
     def run(self):
         self.interaction_index = 0
         super().run()
 
     @on_event(TracerEvent.EXEC_BLOCK, ...)
-    def on_exec_block(self, addr):
+    def handle_exec_block(self, addr):
         if self.bb_trace_index < len(self.bb_trace):
             if self.bb_trace[self.bb_trace_index] != addr:
                 raise Desync("exec addr", self.bb_trace[self.bb_trace_index], addr)
@@ -71,7 +79,7 @@ class InteractionTracer(Tracer):
         self.bb_trace_index += 1
 
     @on_event(TracerEvent.SYSCALL_START, ".*")
-    def on_syscall_start(self, syscall, args):
+    def handle_syscall_start(self, syscall, args):
         l.debug("syscall: %s %s", syscall, args)
         if self.interaction_index < len(self.interaction):
             if self.current_interaction["syscall"] != syscall:
@@ -102,7 +110,7 @@ class InteractionTracer(Tracer):
             )
 
     @on_event(TracerEvent.SYSCALL_FINISH, ".*")
-    def on_syscall_finish(self, syscall, args, result):
+    def handle_syscall_end(self, syscall, args, result):
         l.debug("syscall: %s %s = %s", syscall, args, result)
         if self.current_interaction["syscall"] != syscall:
             raise Desync(
