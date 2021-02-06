@@ -7,6 +7,8 @@ import logging
 import redis
 from flask_socketio import SocketIO
 
+from cartprograph import context, Node
+
 
 l = logging.getLogger(__name__)
 logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
@@ -14,24 +16,19 @@ logging.getLogger().setLevel(os.getenv("LOGLEVEL", "INFO"))
 
 redis_client = redis.Redis(host="localhost", port=6379)
 socketio = SocketIO(message_queue="redis://localhost:6379")
+context["redis_client"] = redis_client
 
 
 def handle_node_event(event):
-    node_id = int(event["data"])
-    node = json.loads(redis_client.get(f"node.{node_id}"))
-    parent_id = node["parent_id"]
-    if parent_id is not None:
-        edge = json.loads(redis_client.get(f"edge.{parent_id}.{node_id}"))
-    else:
-        edge = None
+    node = Node(int(event["data"]))
 
-    l.info("Broadcasting %d", node_id)
+    l.info("Broadcasting %d", node.id)
 
     socketio.emit(
         "update",
         {
-            "node": node,
-            "edge": edge,
+            "src_id": node.parent_id,
+            "dst_id": node.id,
         },
     )
 

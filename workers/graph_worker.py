@@ -4,10 +4,13 @@ import os
 import json
 import itertools
 import collections
+import bisect
 import logging
 
 import redis
 import networkx as nx
+
+from cartprograph import context, Node
 
 
 l = logging.getLogger(__name__)
@@ -15,247 +18,152 @@ logging.basicConfig(level=os.getenv("LOGLEVEL", "INFO"))
 logging.getLogger().setLevel(os.getenv("LOGLEVEL", "INFO"))
 
 redis_client = redis.Redis(host="localhost", port=6379)
-graph = nx.DiGraph()
+context["redis_client"] = redis_client
+context["cached_graph"] = nx.DiGraph()
 new_id = itertools.count()
 
 
-def initialize_graph():
-    node_id = next(new_id)
-    graph.add_node(
-        node_id,
-        **{
-            "id": node_id,
-            "parent_id": None,
-            "interaction": [],
-            "bb_trace": [],
-            "annotation": "",
-        },
-    )
-    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
+def event_node(node):
+    l.info(f"Node new or update: {node.id}")
+    redis_client.publish(f"event.node", node.id)
+
+
+def work_trace(node):
+    basic_blocks = []
+    syscalls = []
+    interactions = []
+    for current_node_id in nx.shortest_path(context["cached_graph"], 0, node.id):
+        current_node = Node(current_node_id)
+        basic_blocks.extend(current_node.basic_blocks)
+        syscalls.extend(current_node.syscalls)
+        interactions.extend(current_node.interactions)
 
     trace = json.dumps(
         {
-            "node_id": node_id,
-            "interaction": [],
-            "bb_trace": [],
+            "node_id": node.id,
+            "basic_blocks": basic_blocks,
+            "syscalls": syscalls,
+            "interactions": interactions,
         }
     )
     redis_client.rpush("work.trace", trace)
+
+
+def initialize_graph():
+    node = Node(next(new_id))
+    node.parent_id = None
+    node.basic_blocks = []
+    node.syscalls = []
+    node.interactions = []
+    work_trace(node)
 
 
 def handle_input_event(event):
-    node = json.loads(event["data"])
-    node_id = node["id"]
+    event_data = json.loads(event["data"])
+    node = Node(event_data["id"])
 
-    prev_node_id = node["parent_id"]
-    edge = graph.edges()[prev_node_id, node_id]
+    input_data = event_data["data"]
 
-    node_id = next(new_id)
-    node["id"] = node_id
+    new_node = Node(next(new_id), copy_from=node)
 
-    l.info("New Input: %d", node_id)
+    new_node.interactions[-1]["data"] = input_data
+    new_node.invalidate("interactions")
 
-    graph.add_node(node_id, **node)
-    graph.add_edge(prev_node_id, node_id, **edge)
-    redis_client.set(
-        f"edge.{prev_node_id}.{node_id}",
-        json.dumps(graph.edges()[prev_node_id, node_id]),
-    )
-    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
-    redis_client.publish(f"event.node", node_id)
+    l.info("New input: %d", new_node.id)
 
-    interaction = []
-    bb_trace = []
-    root = graph.nodes()[0]
-    interaction.extend(root["interaction"])
-    bb_trace.extend(root["bb_trace"])
-    path = nx.shortest_path(graph, 0, node["id"])
-    for n1, n2 in zip(path, path[1:]):
-        node1 = graph.nodes()[n1]
-        node2 = graph.nodes()[n2]
-        edge = graph.edges()[n1, n2]
-        interaction.extend(edge["interaction"])
-        interaction.extend(node2["interaction"])
-        bb_trace.extend(edge["bb_trace"])
-        bb_trace.extend(node2["bb_trace"])
-
-    trace = json.dumps(
-        {
-            "node_id": node_id,
-            "interaction": interaction,
-            "bb_trace": bb_trace,
-        }
-    )
-    redis_client.rpush("work.trace", trace)
-
-
-def handle_annotate_event(event):
-    data = json.loads(event["data"])
-
-    if "id" in data:
-        node = data
-        node_id = node["id"]
-
-        l.info("Annotate: %d", node_id)
-
-        graph.add_node(node_id, **node)
-        redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
-        redis_client.publish(f"event.node", node_id)
-
-    else:
-        edge = data
-        node_id = edge["end_node_id"]
-        prev_node_id = edge["start_node_id"]
-
-        l.info("Annotate: %d -> %d", prev_node_id, node_id)
-
-        graph.add_edge(prev_node_id, node_id, **edge)
-        redis_client.set(
-            f"edge.{prev_node_id}.{node_id}",
-            json.dumps(graph.edges()[prev_node_id, node_id]),
-        )
-        redis_client.publish(f"event.node", node_id)
+    event_node(new_node)
+    work_trace(new_node)
 
 
 def handle_trace_event(event):
     trace = json.loads(event["data"])
+    blocked = event["channel"] == b"event.trace.blocked"
+
     node_id = trace["node_id"]
-    interaction = trace["interaction"]
-    bb_trace = trace["bb_trace"]
+    basic_blocks = trace["basic_blocks"]
+    syscalls = trace["syscalls"]
+    interactions = trace["interactions"]
+    trace_index = 0
 
-    l.info("New Trace: %d", node_id)
-    l.debug("trace: %s", trace)
+    node = Node(node_id)
 
-    interaction_index = 0
-    bb_trace_index = 0
-    root = graph.nodes()[0]
-    interaction_index += len(root["interaction"])
-    path = nx.shortest_path(graph, 0, node_id)
-    for n1, n2 in zip(path, path[1:]):
-        node1 = graph.nodes()[n1]
-        node2 = graph.nodes()[n2]
-        edge = graph.edges()[n1, n2]
-        interaction_index += len(edge["interaction"])
-        bb_trace_index += len(edge["bb_trace"])
-        if n2 != node_id:
-            interaction_index += len(node2["interaction"])
-            bb_trace_index += len(node2["bb_trace"])
-    interaction = interaction[interaction_index:]
+    if node.parent_id is not None:
+        for current_node_id in nx.shortest_path(
+            context["cached_graph"], 0, node.parent_id
+        ):
+            # TODO: this does not seem to be working
+            current_node = Node(current_node_id)
+            basic_blocks = basic_blocks[len(current_node.basic_blocks) :]
+            syscalls = syscalls[len(current_node.syscalls) :]
+            interactions = interactions[len(current_node.interactions) :]
+            trace_index += len(current_node.basic_blocks)
 
-    def io_partitions():
-        current = []
-        for e in interaction:
-            if "io" in e or e["syscall"] in ["execve", "exit", "exit_group", "signal"]:
-                yield current
-                yield [e]
-                current = []
-            else:
-                current.append(e)
+    if blocked:
+        blocked_basic_block, basic_blocks = basic_blocks[-1], basic_blocks[:-1]
+        blocked_syscall, syscalls = syscalls[-1], syscalls[:-1]
+        blocked_interaction, interactions = interactions[-1], interactions[:-1]
 
-    def grouped_partitions():
-        partitions = iter(io_partitions())
-        result = []
-        for edge_partition in partitions:
-            node_partition = next(partitions)
-            if not result:
-                result.append((edge_partition, node_partition))
-                continue
-            prev_edge_partition, prev_node_partition = result[-1]
-            current_io = (
-                node_partition[0]["io"]
-                if len(node_partition) == 1 and "io" in node_partition[0]
-                else None
-            )
-            prev_io = (
-                prev_node_partition[-1]["io"]
-                if "io" in prev_node_partition[-1]
-                else None
-            )
+    def iter_interaction_clusters(interactions):
+        cluster_attributes = ["channel", "direction"]
+        prev_interaction = {"channel": None, "direction": None}
+        cluster = []
+        for interaction in interactions:
             if (
-                current_io
-                and prev_io
-                and not edge_partition
-                and current_io["channel"] == prev_io["channel"]
-                and current_io["direction"] == prev_io["direction"]
-                and current_io["data"] is not None
+                any(
+                    prev_interaction[attribute] != interaction[attribute]
+                    for attribute in cluster_attributes
+                )
+                and cluster
             ):
-                prev_node_partition.extend(node_partition)
-            else:
-                result.append((edge_partition, node_partition))
-        yield from result
+                yield cluster
+                cluster = []
+            cluster.append(interaction)
+            prev_interaction = interaction
+        if cluster:
+            yield cluster
 
-    partitions = iter(grouped_partitions())
+    def iter_cluster_trace_indexes(interaction_clusters):
+        clusters = list(interaction_clusters)
+        for cluster in [*clusters[1:], None]:
+            yield cluster[0]["trace_index"] if cluster else None
 
-    _, node_partition = next(partitions)
-    node_bb_trace_index = node_partition[-1]["bb_trace_index"]
-    graph.nodes()[node_id]["interaction"] = node_partition
-    graph.nodes()[node_id]["bb_trace"] = bb_trace[bb_trace_index:node_bb_trace_index]
-    bb_trace_index = node_bb_trace_index
-    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
-    redis_client.publish(f"event.node", node_id)
+    def split_trace(trace, trace_index):
+        if trace_index is None:
+            return trace[:], []
+        split_index = bisect.bisect_left([e["trace_index"] for e in trace], trace_index)
+        return trace[:split_index], trace[split_index:]
 
-    prev_node_id = node_id
-    for edge_partition, node_partition in partitions:
-        node_id = next(new_id)
-        edge_bb_trace_index = (
-            edge_partition[-1]["bb_trace_index"] if edge_partition else bb_trace_index
+    clusters = iter_interaction_clusters(interactions)
+    current_node = node
+    first = True
+    for cluster_trace_index in iter_cluster_trace_indexes(clusters):
+        if first:
+            first = False
+        else:
+            new_node = Node(next(new_id))
+            new_node.parent_id = current_node.id
+            current_node = new_node
+        delta_index = (
+            cluster_trace_index - trace_index
+            if cluster_trace_index is not None
+            else None
         )
-        graph.add_edge(
-            prev_node_id,
-            node_id,
-            **{
-                "start_node_id": prev_node_id,
-                "end_node_id": node_id,
-                "interaction": edge_partition,
-                "bb_trace": bb_trace[bb_trace_index:edge_bb_trace_index],
-                "annotation": "",
-            },
+        current_node.basic_blocks = basic_blocks[:delta_index]
+        basic_blocks = basic_blocks[delta_index:]
+        trace_index = cluster_trace_index
+        current_node.syscalls, syscalls = split_trace(syscalls, cluster_trace_index)
+        current_node.interactions, interactions = split_trace(
+            interactions, cluster_trace_index
         )
-        bb_trace_index = edge_bb_trace_index
-        node_bb_trace_index = node_partition[-1]["bb_trace_index"]
-        graph.add_node(
-            node_id,
-            **{
-                "id": node_id,
-                "parent_id": prev_node_id,
-                "interaction": node_partition,
-                "bb_trace": bb_trace[bb_trace_index:node_bb_trace_index],
-                "annotation": "",
-            },
-        )
-        bb_trace_index = node_bb_trace_index
-        redis_client.set(
-            f"edge.{prev_node_id}.{node_id}",
-            json.dumps(graph.edges()[prev_node_id, node_id]),
-        )
-        redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
-        redis_client.publish("event.node", node_id)
-        prev_node_id = node_id
+        event_node(current_node)
 
-
-def handle_trace_error_event(event):
-    error_type = event["channel"].decode().split(".")[2]
-
-    trace = json.loads(event["data"])
-    node_id = trace["node_id"]
-
-    l.info("Trace Error (%s): %d", error_type, node_id)
-
-    graph.nodes()[node_id]["interaction"] = [
-        {
-            "syscall": "error",
-            "args": [],
-            "io": {
-                "channel": "error",
-                "direction": error_type,
-                "data": "",
-            },
-        }
-    ]
-    graph.nodes()[node_id]["bb_trace"] = []
-    graph.nodes()[node_id]["annotation"] = trace.get("annotation", "")
-    redis_client.set(f"node.{node_id}", json.dumps(graph.nodes()[node_id]))
-    redis_client.publish("event.node", node_id)
+    if blocked:
+        new_node = Node(next(new_id))
+        new_node.parent_id = current_node.id
+        new_node.basic_blocks = [blocked_basic_block]
+        new_node.syscalls = [blocked_syscall]
+        new_node.interactions = [blocked_interaction]
+        event_node(new_node)
 
 
 def main():
@@ -263,28 +171,15 @@ def main():
     p.psubscribe(
         **{
             "event.input": handle_input_event,
-            "event.annotate": handle_annotate_event,
             "event.trace.blocked": handle_trace_event,
             "event.trace.finished": handle_trace_event,
-            "event.trace.desync": handle_trace_error_event,
-            "event.trace.timeout": handle_trace_error_event,
-            "event.trace.error": handle_trace_error_event,
+            # "event.trace.desync": handle_trace_error_event,
+            # "event.trace.timeout": handle_trace_error_event,
+            # "event.trace.error": handle_trace_error_event,
         }
     )
 
-    nodes = [
-        (key, json.loads(redis_client.get(key))) for key in redis_client.keys("node.*")
-    ]
-    edges = [
-        (key, json.loads(redis_client.get(key))) for key in redis_client.keys("edge.*")
-    ]
-    for key, node in nodes:
-        graph.add_node(node["id"], **node)
-    for key, edge in edges:
-        graph.add_edge(edge["start_node_id"], edge["end_node_id"], **edge)
-
-    if not graph:
-        initialize_graph()
+    initialize_graph()
 
     for event in p.listen():
         pass

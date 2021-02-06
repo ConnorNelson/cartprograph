@@ -13,9 +13,9 @@ with open(BASE_DIR / "requirements.txt") as f:
 setup(
     name="cartprograph",
     python_requires=">=3.8",
-    version="0.2.3",
+    version="0.3.0",
     packages=[
-        "tracer",
+        "cartprograph",
     ],
     install_requires=requirements,
 )

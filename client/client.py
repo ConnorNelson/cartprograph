@@ -3,7 +3,10 @@ import time
 import copy
 
 import networkx as nx
+import requests
 import socketio
+
+URL = "http://localhost:4242/"
 
 
 class GraphUpdateNamespace(socketio.ClientNamespace):
@@ -12,13 +15,18 @@ class GraphUpdateNamespace(socketio.ClientNamespace):
         self.graph = nx.DiGraph()
 
     def on_update(self, data):
-        node = data["node"]
-        edge = data["edge"]
-        self.graph.add_node(node["id"], **node)
-        if edge:
-            assert node["parent_id"] == edge["start_node_id"]
-            # TODO: fix bug assert edge["end_node_id"] == node["id"]
-            self.graph.add_edge(node["parent_id"], node["id"], **edge)
+        parent_id, node_id = data["src_id"], data["dst_id"]
+
+        def get_trace(attr):
+            return requests.get(f"{URL}/trace/{attr}/{node_id}").json()
+
+        node_attrs = {
+            attr: get_trace(attr)
+            for attr in ["basic_blocks", "syscalls", "interactions"]
+        }
+        self.graph.add_node(node_id, **node_attrs)
+        if node_id:
+            self.graph.add_edge(parent_id, node_id)
 
 
 def pretty_print(color, *values, depth=None, reset=True, end="\n"):
@@ -45,7 +53,7 @@ def main():
     client = socketio.Client()
     graph_update_namespace = GraphUpdateNamespace()
     client.register_namespace(graph_update_namespace)
-    client.connect("http://localhost:4242/")
+    client.connect(URL)
 
     graph = graph_update_namespace.graph
     while 0 not in graph.nodes:
@@ -56,34 +64,29 @@ def main():
 
         depths = nx.shortest_path_length(graph, 0)
 
-        for node in nx.dfs_preorder_nodes(graph):
-            depth = depths[node]
-            interaction, *coalesced_interaction = graph.nodes[node]["interaction"]
+        for node_id in nx.dfs_preorder_nodes(graph, 0):
+            node = graph.nodes[node_id]
+            depth = depths[node_id]
 
-            syscall = interaction["syscall"]
+            syscalls = node["syscalls"]
+            interactions = node["interactions"]
 
-            if syscall == "execve":
-                pretty_print("magenta", interaction["args"][1], depth=depth)
+            if syscalls[0]["name"] == "execve":
+                pretty_print("magenta", syscalls[0]["args"][1], depth=depth)
 
-            elif syscall == "read":
-                io = interaction["io"]
-                data = io["data"]
-                if data is None:
-                    assert not coalesced_interaction
-                    pretty_print("yellow", f"[INTERACT {node}]", depth=depth)
+            elif interactions and interactions[0]["direction"] == "input":
+                if interactions[0]["data"] is None:
+                    pretty_print("yellow", f"[INTERACT {node_id}]", depth=depth)
                 else:
-                    data += "".join(e["io"]["data"] for e in coalesced_interaction)
+                    data = "".join(interaction["data"] for interaction in interactions)
                     pretty_print("blue", repr(data), depth=depth)
 
-            elif syscall == "write":
-                io = interaction["io"]
-                data = io["data"]
-                data += "".join(e["io"]["data"] for e in coalesced_interaction)
+            elif interactions and interactions[0]["direction"] == "output":
+                data = "".join(interaction["data"] for interaction in interactions)
                 pretty_print("green", repr(data), depth=depth)
 
-            elif "exit" in syscall:
-                exit_code = interaction["args"][0]
-                pretty_print("magenta", f"[EXIT {exit_code}]", depth=depth)
+            else:
+                assert False
 
         print()
 
@@ -94,30 +97,24 @@ def main():
 
         print()
 
-        for ancestor_node in nx.shortest_path(graph, 0, node_id):
-            if ancestor_node in [0, node_id]:
+        for ancestor_node_id in nx.shortest_path(graph, 0, node_id):
+            if ancestor_node_id in [0, node_id]:
                 continue
-            interaction, *coalesced_interaction = graph.nodes[ancestor_node][
-                "interaction"
-            ]
-            syscall = interaction["syscall"]
-            io = interaction["io"]
-            data = io["data"]
-            data += "".join(e["io"]["data"] for e in coalesced_interaction)
-            if syscall == "read":
-                pretty_print("blue", data, end="")
-            elif syscall == "write":
-                pretty_print("green", data, end="")
+            node = graph.nodes[ancestor_node_id]
 
-        node = copy.deepcopy(graph.nodes[node_id])
-        interaction = node["interaction"][0]
-        assert interaction["syscall"] == "read" and interaction["io"]["data"] is None
+            interactions = node["interactions"]
+
+            if interactions and interactions[0]["direction"] == "input":
+                data = "".join(interaction["data"] for interaction in interactions)
+                pretty_print("blue", data, end="")
+            elif interactions and interactions[0]["direction"] == "output":
+                data = "".join(interaction["data"] for interaction in interactions)
+                pretty_print("green", data, end="")
 
         pretty_print("blue", reset=False)
 
-        data = input()
-        interaction["io"]["data"] = data + "\n"
-        client.emit("input", node)
+        data = input() + "\n"
+        requests.post(f"{URL}/input/{node_id}", json={"input": data})
 
     client.wait()
 

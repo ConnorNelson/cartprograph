@@ -12,8 +12,7 @@ import logging
 
 import redis
 import archr
-
-from tracer import IOBlockingTracer, IO, Block, Desync, on_event, TracerEvent
+import qtrace
 
 
 l = logging.getLogger(__name__)
@@ -46,117 +45,168 @@ class timeout(contextlib.ContextDecorator):
             return True
 
 
-class CartprographTracer(IOBlockingTracer):
-    @on_event(TracerEvent.SYSCALL_START, "accept")
-    def on_accept(self, syscall, args):
-        fd = int(args[0])
-        for interaction in self.prev_interactions:
-            if interaction["syscall"] == "bind":
-                bind_args = interaction["args"]
-                bind_fd = int(bind_args[0])
-                if bind_fd != fd:
-                    continue
-                match = re.search(r"sin_port=htons\((?P<port>\d+)\)", bind_args[2])
-                if not match:
-                    continue
-                port = int(match["port"])
-                if not port in self.target.tcp_ports:
-                    raise Exception(
-                        "Target is listening on port %d, but archr is not aware of it",
-                        port,
-                    )
-                l.info("Connecting to port %d", port)
-                port_index = self.target.tcp_ports.index(port)
-                channel_name = f"tcp:{port_index}"
-                self.flight.get_channel(channel_name)
-                self.fd_channels[fd] = channel_name
-                return
+class Block(Exception):
+    pass
 
-    @on_event(TracerEvent.SYSCALL_FINISH, "accept")
-    def on_accept_finished(self, syscall, args, result):
-        fd = int(args[0])
-        if fd in self.fd_channels:
-            channel = self.fd_channels[fd]
-            del self.fd_channels[fd]
-            self.fd_channels[result] = channel
 
-    @on_event(TracerEvent.SYSCALL_START, "read")
-    def on_read_socket(self, syscall, args):
-        fd = int(args[0])
-        if fd not in self.fd_channels:
-            return
-        channel_name = self.fd_channels[fd]
-        port_index = int(channel_name.split(":")[1])
-        port = self.target.tcp_ports[port_index]
-        if "io" not in self.current_interaction:
-            self.current_interaction["io"] = IO(f"tcp:{port}", "read", None)
-            raise Block(self, syscall, args)
+class Desync(Exception):
+    pass
+
+
+class TracingList(list):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_index = 0
+        self.initial_len = len(self)
+
+    @property
+    def tracing(self):
+        return self.current_index < self.initial_len
+
+    @property
+    def current(self):
+        return self[self.current_index]
+
+    @property
+    def previous(self):
+        return self[self.current_index - 1]
+
+    def append(self, element, *, ignore_attrs=None):
+        if self.tracing:
+            if ignore_attrs:
+                attrs = (set(self.current) | set(element)) - set(ignore_attrs)
+                if any(self.current[attr] != element[attr] for attr in attrs):
+                    raise Desync()
+            elif self.current != element:
+                raise Desync()
         else:
-            io = self.current_interaction["io"]
-            channel = self.flight.get_channel(channel_name)
-            if io.data:
-                l.debug("tcp:%d read: %s", port, io.data)
-                channel.write(io.data)
-            else:
-                l.debug("tcp:%d read: shutdown_wr", port)
-                channel.shutdown_wr()
-
-    @on_event(TracerEvent.SYSCALL_FINISH, "write")
-    def on_write_socket(self, syscall, args, result):
-        fd = int(args[0])
-        if fd in self.fd_channels:
-            channel_name = self.fd_channels[fd]
-            port_index = int(channel_name.split(":")[1])
-            port = self.target.tcp_ports[port_index]
-            channel = self.flight.get_channel(channel_name)
-            output = channel.read(result)
-            l.debug("tcp:%d write: %s", port, output)
-            assert len(output) == result
-            io = IO(f"tcp:{port}", "write", output)
-            if "io" in self.prev_interaction:
-                if self.prev_interaction["io"] != io:
-                    raise Desync("socket write", self.prev_interaction["io"], io)
-            else:
-                self.prev_interaction["io"] = io
-
-    @on_event(TracerEvent.SYSCALL_FINISH, "close")
-    def on_close(self, syscall, args, result):
-        fd = int(args[0])
-        if fd in self.fd_channels:
-            del self.fd_channels[fd]
-
-    @on_event(TracerEvent.SYSCALL_FINISH, "dup*")
-    def on_dup(self, syscall, args, result):
-        fd = int(args[0])
-        if fd in self.fd_channels:
-            self.fd_channels[result] = self.fd_channels[fd]
+            super().append(element)
+        self.current_index += 1
 
 
-def serialize_interaction(interaction):
-    data = [{k: v for k, v in e.items()} for e in interaction]
-    for e in data:
-        if "io" in e:
-            io = e["io"]
-            e["io"] = {
-                "channel": io.channel,
-                "direction": io.direction,
-                "data": io.data.decode("latin") if io.data is not None else None,
-            }
-    return data
+class CartprographTracer(qtrace.TraceMachine):
+    def __init__(
+        self,
+        target,
+        basic_blocks,
+        syscalls,
+        interactions,
+        *,
+        trace_socket,
+    ):
+        super().__init__(argv=target.target_args, trace_socket=trace_socket)
 
+        self.target = target
+        self.basic_blocks = TracingList(basic_blocks)
+        self.syscalls = TracingList(syscalls)
+        self.interactions = TracingList(interactions)
 
-def deserialize_interaction(interaction):
-    for e in interaction:
-        e["args"] = tuple(e["args"])
-        if "io" in e:
-            io = e["io"]
-            io = IO(
-                io["channel"],
-                io["direction"],
-                io["data"].encode("latin") if io["data"] is not None else None,
-            )
-            e["io"] = io
-    return interaction
+        self.trace_index = -1
+
+    def run(self, *args, **kwargs):
+        # TODO: Refactor
+        # We have access to .process at this point
+        self.fd_channels = {
+            0: self.process.stdin,
+            1: self.process.stdout,
+            2: self.process.stderr,
+        }
+
+        syscall = {
+            "nr": None,
+            "name": "execve",
+            "args": [self.target.target_args[0], self.target.target_args, {}],
+            "ret": None,
+            "trace_index": -1,
+        }
+        self.syscalls.append(syscall)
+
+        super().run(*args, **kwargs)
+
+    def on_basic_block(self, address):
+        super().on_basic_block(address)
+        self.basic_blocks.append(address)
+        self.trace_index += 1
+
+    def on_syscall_start(self, syscall_nr, *args):
+        super().on_syscall_start(syscall_nr, *args)
+        syscall_name = qtrace.syscalls["x86_64"][syscall_nr][1][len("sys_") :]
+        l.debug(f"Trace syscall start: {syscall_name}")
+        syscall = {
+            "nr": syscall_nr,
+            "name": syscall_name,
+            "args": list(args),
+            "ret": None,
+            "trace_index": self.trace_index,
+        }
+        self.syscalls.append(syscall, ignore_attrs=["ret"])
+
+        if syscall_name == "read":
+            fd = args[0]
+            if fd in self.fd_channels:
+                count = args[2]
+                self.handle_read(fd, count)
+
+    def on_syscall_end(self, syscall_nr, ret):
+        super().on_syscall_end(syscall_nr, ret)
+        current_syscall = self.syscalls.previous
+        syscall_name = current_syscall["name"]
+        l.debug(f"Trace syscall end: {syscall_name}")
+        assert current_syscall["nr"] == syscall_nr
+        assert current_syscall["trace_index"] == self.trace_index
+        if self.syscalls.tracing:
+            assert current_syscall["ret"] == ret
+        current_syscall["ret"] = ret
+
+        if syscall_name == "write":
+            args = current_syscall["args"]
+            fd = args[0]
+            if fd in self.fd_channels:
+                count = args[2]
+                self.handle_write(fd, count)
+
+    def handle_read(self, fd, count):
+        std_channels = {
+            0: "stdio",
+            1: "stdio",
+            2: "stderr",
+        }
+        interaction = {
+            "channel": std_channels[fd],
+            "direction": "input",
+            "data": None,
+            "trace_index": self.trace_index,
+        }
+        if not self.interactions.tracing:
+            self.interactions.append(interaction)
+            raise Block()
+        else:
+            current_interaction = self.interactions.current
+            for attr in ["channel", "direction", "trace_index"]:
+                if current_interaction[attr] != interaction[attr]:
+                    raise Desync()
+            channel = self.fd_channels[fd]
+            data = current_interaction["data"]
+            channel.write(data.encode("latin"))
+            channel.flush()
+            interaction["data"] = data
+            self.interactions.append(interaction)
+
+    def handle_write(self, fd, count):
+        std_channels = {
+            0: "stdio",
+            1: "stdio",
+            2: "stderr",
+        }
+        channel = self.fd_channels[fd]
+        data = channel.read(count)
+        interaction = {
+            "channel": std_channels[fd],
+            "direction": "output",
+            "data": data.decode("latin"),
+            "trace_index": self.trace_index,
+        }
+        self.interactions.append(interaction)
 
 
 def main():
@@ -170,30 +220,32 @@ def main():
             _, trace = redis_client.blpop("work.trace")
             trace = json.loads(trace)
 
-            interaction = deserialize_interaction(trace["interaction"])
-            bb_trace = trace["bb_trace"]
+            node_id = trace["node_id"]
+            basic_blocks = trace["basic_blocks"]
+            syscalls = trace["syscalls"]
+            interactions = trace["interactions"]
             machine = None
 
             def Machine(argv, *, trace_socket, std_streams):
                 nonlocal machine  # TODO: refactor
                 machine = CartprographTracer(
-                    target.target_args,
-                    interaction=interaction,
-                    bb_trace=bb_trace,
+                    target,
+                    basic_blocks,
+                    syscalls,
+                    interactions,
                     trace_socket=trace_socket,
-                    std_streams=std_streams,
                 )
-                machine.target = target
-                machine.fd_channels = {}
                 return machine
 
             def publish_trace(channel):
-                trace["interaction"] = serialize_interaction(machine.interaction)
-                trace["bb_trace"] = machine.bb_trace
+                trace["basic_blocks"] = machine.basic_blocks
+                trace["syscalls"] = machine.syscalls
+                trace["interactions"] = machine.interactions
                 trace_data = json.dumps(trace)
                 redis_client.publish(channel, trace_data)
+                l.info(f"New trace ({channel}) from node {node_id}")
 
-            l.info("Tracing")
+            l.info(f"Tracing node {node_id}")
             start_time = time.perf_counter()
 
             try:
@@ -208,16 +260,16 @@ def main():
 
                 publish_trace("event.trace.blocked")
 
-            except Desync as e:
-                trace["annotation"] = traceback.format_exc()
-                publish_trace("event.trace.desync")
+            # except Desync as e:
+            #     trace["annotation"] = traceback.format_exc()
+            #     publish_trace("event.trace.desync")
 
-            except TimeoutError:
-                publish_trace("event.trace.timeout")
+            # except TimeoutError:
+            #     publish_trace("event.trace.timeout")
 
-            except Exception as e:
-                trace["annotation"] = traceback.format_exc()
-                publish_trace("event.trace.error")
+            # except Exception as e:
+            #     trace["annotation"] = traceback.format_exc()
+            #     publish_trace("event.trace.error")
 
             else:
                 publish_trace("event.trace.finished")
