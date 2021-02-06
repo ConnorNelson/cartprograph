@@ -1,6 +1,5 @@
 import os
 import time
-import copy
 
 import networkx as nx
 import requests
