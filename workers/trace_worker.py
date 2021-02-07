@@ -4,8 +4,7 @@ import os
 import re
 import time
 import signal
-import traceback
-import pathlib
+import socket
 import json
 import contextlib
 import logging
@@ -103,13 +102,19 @@ class CartprographTracer(qtrace.TraceMachine):
 
         self.trace_index = -1
 
+        self.buffered_interaction = {
+            "channel": None,
+            "direction": None,
+            "data": None,
+        }
+
     def run(self, *args, **kwargs):
         # TODO: Refactor
         # We have access to .process at this point
         self.fd_channels = {
-            0: self.process.stdin,
-            1: self.process.stdout,
-            2: self.process.stderr,
+            0: ("stdio", self.process.stdin),
+            1: ("stdio", self.process.stdout),
+            2: ("stderr", self.process.stderr),
         }
 
         syscall = {
@@ -141,11 +146,13 @@ class CartprographTracer(qtrace.TraceMachine):
         }
         self.syscalls.append(syscall, ignore_attrs=["ret"])
 
-        if syscall_name == "read":
-            fd = args[0]
-            if fd in self.fd_channels:
-                count = args[2]
-                self.handle_read(fd, count)
+        syscall_handlers = {
+            "read": self.handle_read,
+            "write": self.handle_write,
+            "accept": self.handle_accept,
+        }
+        if syscall_name in syscall_handlers:
+            syscall_handlers[syscall_name](*args)
 
     def on_syscall_end(self, syscall_nr, ret):
         super().on_syscall_end(syscall_nr, ret)
@@ -158,55 +165,79 @@ class CartprographTracer(qtrace.TraceMachine):
             assert current_syscall["ret"] == ret
         current_syscall["ret"] = ret
 
-        if syscall_name == "write":
-            args = current_syscall["args"]
-            fd = args[0]
-            if fd in self.fd_channels:
-                count = args[2]
-                self.handle_write(fd, count)
-
-    def handle_read(self, fd, count):
-        std_channels = {
-            0: "stdio",
-            1: "stdio",
-            2: "stderr",
+        syscall_handlers = {
+            "accept": self.handle_accept_end,
         }
+        if syscall_name in syscall_handlers:
+            syscall_handlers[syscall_name](ret)
+
+    def handle_read(self, fd, buf, count):
+        if fd not in self.fd_channels:
+            return
+        channel_name, channel = self.fd_channels[fd]
         interaction = {
-            "channel": std_channels[fd],
+            "channel": channel_name,
             "direction": "input",
             "data": None,
             "trace_index": self.trace_index,
         }
-        if not self.interactions.tracing:
-            self.interactions.append(interaction)
-            raise Block()
-        else:
+        buffered_interaction_available = (
+            all(
+                self.buffered_interaction[attr] == interaction[attr]
+                for attr in ["channel", "direction"]
+            )
+            and self.buffered_interaction["data"]
+        )
+
+        if self.interactions.tracing:
             current_interaction = self.interactions.current
             for attr in ["channel", "direction", "trace_index"]:
                 if current_interaction[attr] != interaction[attr]:
                     raise Desync()
-            channel = self.fd_channels[fd]
-            data = current_interaction["data"]
-            channel.write(data.encode("latin"))
-            channel.flush()
-            interaction["data"] = data
+            interaction["data"] = current_interaction["data"]
+        elif buffered_interaction_available:
+            interaction["data"] = self.buffered_interaction["data"]
+        else:
             self.interactions.append(interaction)
+            raise Block()
 
-    def handle_write(self, fd, count):
-        std_channels = {
-            0: "stdio",
-            1: "stdio",
-            2: "stderr",
-        }
-        channel = self.fd_channels[fd]
-        data = channel.read(count)
+        data = interaction["data"]
+        data, buffered_data = data[:count], data[count:]
+        l.info(f"data={repr(data)}, buffered_data={repr(buffered_data)}")
+        interaction["data"] = data
+        for attr in ["channel", "direction"]:
+            self.buffered_interaction[attr] = interaction[attr]
+        self.buffered_interaction["data"] = buffered_data
+        os.write(channel.fileno(), data.encode("latin"))
+
+        if self.interactions.tracing:
+            assert self.interactions.current["data"].startswith(data)
+            self.interactions.current["data"] = data
+        self.interactions.append(interaction)
+
+    def handle_write(self, fd, buf, count):
+        if fd not in self.fd_channels:
+            return
+        channel_name, channel = self.fd_channels[fd]
+        data = os.read(channel.fileno(), count)
         interaction = {
-            "channel": std_channels[fd],
+            "channel": channel_name,
             "direction": "output",
             "data": data.decode("latin"),
             "trace_index": self.trace_index,
         }
         self.interactions.append(interaction)
+
+    def handle_accept(self, sockfd, addr, addrlen):
+        # TODO: determine the port correctly (with detailed syscall info)
+        address = (self.target.ipv4_address, self.target.tcp_ports[0])
+        self.accepted_socket = socket.create_connection(address)
+
+    def handle_accept_end(self, ret):
+        if hasattr(self, "accepted_socket"):
+            port = self.accepted_socket.getpeername()[1]
+            self.fd_channels[ret] = (f"TCP:{port}", self.accepted_socket)
+            del self.accepted_socket
 
 
 def main():
