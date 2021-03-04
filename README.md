@@ -20,5 +20,6 @@ docker build -t simple_program tests/targets/simple_program
 ### Simple Client
 
 ```sh
-python client/client.py
+docker build -t cartprograph-client client
+docker run -it --rm --net=host cartprograph-client
 ```
