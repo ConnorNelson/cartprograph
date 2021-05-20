@@ -82,6 +82,10 @@ class TracingList(list):
             super().append(element)
         self.current_index += 1
 
+    def extend(self, iterable, *, ignore_attrs=None):
+        for element in iterable:
+            self.append(element, ignore_attrs=ignore_attrs)
+
 
 class CartprographTracer(qtrace.TraceMachine):
     def __init__(
@@ -90,10 +94,8 @@ class CartprographTracer(qtrace.TraceMachine):
         basic_blocks,
         syscalls,
         interactions,
-        *,
-        trace_socket,
     ):
-        super().__init__(argv=target.target_args, trace_socket=trace_socket)
+        super().__init__(argv=target.target_args)
 
         self.target = target
         self.basic_blocks = TracingList(basic_blocks)
@@ -101,22 +103,28 @@ class CartprographTracer(qtrace.TraceMachine):
         self.interactions = TracingList(interactions)
 
         self.trace_index = -1
-
         self.buffered_interaction = {
             "channel": None,
             "direction": None,
             "data": None,
         }
 
-    def run(self, *args, **kwargs):
-        # TODO: Refactor
-        # We have access to .process at this point
-        self.fd_channels = {
-            0: ("stdio", self.process.stdin),
-            1: ("stdio", self.process.stdout),
-            2: ("stderr", self.process.stderr),
-        }
+        self._fd_channels = {}
 
+    @property
+    def fd_channels(self):
+        if not self._fd_channels:
+            stdin, stdout, stderr = self.std_streams
+            self._fd_channels.update(
+                {
+                    0: ("stdio", stdin),
+                    1: ("stdio", stdout),
+                    2: ("stderr", stderr),
+                }
+            )
+        return self._fd_channels
+
+    def run(self, *args, **kwargs):
         syscall = {
             "nr": None,
             "name": "execve",
@@ -128,10 +136,10 @@ class CartprographTracer(qtrace.TraceMachine):
 
         super().run(*args, **kwargs)
 
-    def on_basic_block(self, address):
-        super().on_basic_block(address)
-        self.basic_blocks.append(address)
-        self.trace_index += 1
+    def on_basic_blocks(self, addresses):
+        super().on_basic_blocks(addresses)
+        self.basic_blocks.extend(addresses)
+        self.trace_index += len(addresses)
 
     def on_syscall_start(self, syscall_nr, *args):
         super().on_syscall_start(syscall_nr, *args)
@@ -255,18 +263,12 @@ def main():
             basic_blocks = trace["basic_blocks"]
             syscalls = trace["syscalls"]
             interactions = trace["interactions"]
-            machine = None
-
-            def Machine(argv, *, trace_socket, std_streams):
-                nonlocal machine  # TODO: refactor
-                machine = CartprographTracer(
-                    target,
-                    basic_blocks,
-                    syscalls,
-                    interactions,
-                    trace_socket=trace_socket,
-                )
-                return machine
+            machine = CartprographTracer(
+                target,
+                basic_blocks,
+                syscalls,
+                interactions,
+            )
 
             def publish_trace(channel):
                 trace["basic_blocks"] = machine.basic_blocks
@@ -282,7 +284,7 @@ def main():
             try:
                 with timeout(180):
                     analyzer = archr.analyzers.QTraceAnalyzer(target)
-                    analyzer.fire(Machine, timeout_exception=False)
+                    analyzer.fire(lambda _: machine, timeout_exception=False)
 
             except Block:
                 end_time = time.perf_counter()
