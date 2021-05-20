@@ -16,13 +16,13 @@ redis_client = redis.Redis(host="localhost", port=6379)
 context["redis_client"] = redis_client
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "nothing to hide"
+app.config["SECRET_KEY"] = "SECRET"
 socketio = SocketIO(app, message_queue="redis://localhost:6379/")
 
 
 @app.route("/")
 def index_route():
-    return render_template("index.html")
+    return jsonify({"status": "ok"})
 
 
 @app.route("/trace/basic_blocks/<node_id>")
