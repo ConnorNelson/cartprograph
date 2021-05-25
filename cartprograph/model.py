@@ -69,7 +69,15 @@ class FakeCache:
 
 
 class Node(RedisBackedObject):
-    attributes = ["parent_id", "basic_blocks", "syscalls", "interactions"]
+    attributes = [
+        "parent_id",
+        "tracepoints",
+        "basic_blocks",
+        "syscalls",
+        "interactions",
+        "datapoints",
+        "maps",
+    ]
 
     def __init__(self, id, **kwargs):
         self.id = id

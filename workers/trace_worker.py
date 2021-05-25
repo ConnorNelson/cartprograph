@@ -89,18 +89,16 @@ class TracingList(list):
 
 class CartprographTracer(qtrace.TraceMachine):
     def __init__(
-        self,
-        target,
-        basic_blocks,
-        syscalls,
-        interactions,
+        self, target, tracepoints, basic_blocks, syscalls, interactions, datapoints
     ):
         super().__init__(argv=target.target_args)
 
         self.target = target
+        self.tracepoints = tracepoints
         self.basic_blocks = TracingList(basic_blocks)
         self.syscalls = TracingList(syscalls)
         self.interactions = TracingList(interactions)
+        self.datapoints = TracingList(datapoints)
 
         self.trace_index = -1
         self.buffered_interaction = {
@@ -125,6 +123,27 @@ class CartprographTracer(qtrace.TraceMachine):
         return self._fd_channels
 
     def run(self, *args, **kwargs):
+        for tracepoint in self.tracepoints:
+            address = tracepoint["address"]
+            datapoints = tracepoint["datapoints"]
+
+            @qtrace.breakpoint(address)
+            def tracepoint_callback(self, *, address=address, datapoints=datapoints):
+                data = dict()
+                for datapoint in datapoints:
+                    result = self.gdb.registers[datapoint]
+                    data[datapoint] = result
+                datapoint = {
+                    "address": address,
+                    "data": data,
+                    "trace_index": self.trace_index,
+                }
+                self.datapoints.append(datapoint)
+
+            setattr(
+                self, f"breakpoint_{hex(address)}", tracepoint_callback.__get__(self)
+            )
+
         syscall = {
             "nr": None,
             "name": "execve",
@@ -260,20 +279,40 @@ def main():
             trace = json.loads(trace)
 
             node_id = trace["node_id"]
+            tracepoints = trace["tracepoints"]
             basic_blocks = trace["basic_blocks"]
             syscalls = trace["syscalls"]
             interactions = trace["interactions"]
+            datapoints = trace["datapoints"]
+
             machine = CartprographTracer(
                 target,
+                tracepoints,
                 basic_blocks,
                 syscalls,
                 interactions,
+                datapoints,
             )
 
             def publish_trace(channel):
                 trace["basic_blocks"] = machine.basic_blocks
                 trace["syscalls"] = machine.syscalls
                 trace["interactions"] = machine.interactions
+                trace["datapoints"] = machine.datapoints
+                maps = []
+                for region, mapping in machine.maps.items():
+                    start_address, end_address = region
+                    pathname, offset, permissions = mapping
+                    maps.append(
+                        {
+                            "start_address": start_address,
+                            "end_address": end_address,
+                            "pathname": pathname,
+                            "offset": offset,
+                            "permissions": permissions,
+                        }
+                    )
+                trace["maps"] = maps
                 trace_data = json.dumps(trace)
                 redis_client.publish(channel, trace_data)
                 l.info(f"New trace ({channel}) from node {node_id}")

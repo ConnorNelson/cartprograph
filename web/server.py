@@ -17,12 +17,36 @@ context["redis_client"] = redis_client
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = "SECRET"
+app.config["JSON_SORT_KEYS"] = False
 socketio = SocketIO(app, message_queue="redis://localhost:6379/")
+
+
+def all_nodes():
+    node_ids = sorted(
+        set(int(n.decode().split(".")[1]) for n in redis_client.keys("node.*"))
+    )
+    for node_id in node_ids:
+        yield Node(node_id)
 
 
 @app.route("/")
 def index_route():
-    return jsonify({"status": "ok"})
+    return jsonify(dict(status="alive"))
+
+
+@app.route("/initialize", methods=["POST"])
+def initialize():
+    tracepoints = request.json["tracepoints"]
+    initialize = {
+        "tracepoints": tracepoints,
+    }
+    redis_client.publish("event.initialize", json.dumps(initialize))
+    return jsonify(dict(success=True))
+
+
+@app.route("/nodes")
+def nodes():
+    return jsonify(dict(nodes=[node.id for node in all_nodes()]))
 
 
 @app.route("/trace/basic_blocks/<node_id>")
@@ -40,6 +64,16 @@ def trace_interactions(node_id):
     return jsonify(Node(node_id).interactions)
 
 
+@app.route("/trace/datapoints/<node_id>")
+def trace_datapoints(node_id):
+    return jsonify(Node(node_id).datapoints)
+
+
+@app.route("/trace/maps")
+def trace_maps():
+    return jsonify(Node(0).maps)
+
+
 @app.route("/input/<id>", methods=["POST"])
 def new_input(id):
     input_ = {
@@ -52,16 +86,12 @@ def new_input(id):
 
 @socketio.on("connect")
 def on_connect():
-    node_ids = sorted(
-        [int(n.decode().split(".")[1]) for n in redis_client.keys("node.*")]
-    )
-    for node_id in node_ids:
-        parent_id = Node(node_id).parent_id
+    for node in all_nodes():
         emit(
             "update",
             {
-                "src_id": parent_id,
-                "dst_id": node_id,
+                "src_id": node.parent_id,
+                "dst_id": node.id,
             },
         )
 
